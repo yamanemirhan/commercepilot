@@ -18,6 +18,7 @@ import {
   X,
 } from "lucide-react";
 import { ProductArt } from "./product-art";
+import { AddToBag, ShoppingControls } from "./shopping";
 import { CatalogPage, Category, money, Product } from "@/lib/catalog";
 
 const categoryNames = [
@@ -185,9 +186,7 @@ export function Storefront() {
             Our approach <ArrowUpRight size={12} />
           </button>
         </nav>
-        <span className="demo-pill">
-          <span /> Demo store
-        </span>
+        <ShoppingControls />
       </header>
 
       <main>
@@ -592,9 +591,10 @@ export function Storefront() {
                     ? `In stock · ${detail.stock} available`
                     : "Currently out of stock"}
                 </span>
+                <AddToBag product={detail} />
                 <div className="detail-notice">
-                  You’re exploring our demo collection. Shopping and checkout
-                  are not available in this preview.
+                  Your bag is saved to your account. This is a demo collection;
+                  checkout is not available yet.
                 </div>
               </div>
             </div>
@@ -634,8 +634,8 @@ export function Storefront() {
         <p className="about-note">
           CommercePilot is an interactive commerce demo. Products,
           specifications, prices, and stock are fictional. This preview lets you
-          explore the catalog; accounts, checkout, and the AI shopping assistant
-          are not yet enabled.
+          explore the catalog and save a personal bag. Checkout and the AI
+          shopping assistant are not yet enabled.
         </p>
         <button
           className="button dark"

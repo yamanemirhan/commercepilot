@@ -24,6 +24,8 @@ services:
       ASPNETCORE_HTTP_PORTS: 8080
       ConnectionStrings__Commerce: Host=postgres;Database=commercepilot;Username=commercepilot;Password=${POSTGRES_PASSWORD}
       Database__Initialize: "true"
+      DemoAccounts__AlexPassword: ${DEMO_ALEX_PASSWORD:?Run scripts/start.ps1 to initialize demo credentials}
+      DemoAccounts__SamPassword: ${DEMO_SAM_PASSWORD:?Run scripts/start.ps1 to initialize demo credentials}
     ports:
       - "127.0.0.1:5080:8080"
     depends_on:
@@ -34,6 +36,7 @@ services:
       context: web
     environment:
       API_BASE_URL: http://api:8080
+      APP_ORIGIN: http://localhost:3000
       HOSTNAME: 0.0.0.0
       PORT: 3000
     ports:

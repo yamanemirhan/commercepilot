@@ -9,8 +9,8 @@ function Assert-That([bool]$Condition, [string]$Message) {
     $script:checks++
     Write-Host "PASS: $Message"
 }
-function Assert-Status([string]$Url, [int]$Expected) {
-    try { $status = [int](Invoke-WebRequest -Uri $Url -UseBasicParsing).StatusCode }
+function Assert-Status([string]$Url, [int]$Expected, [string]$Method = 'GET', [hashtable]$Headers = @{}) {
+    try { $status = [int](Invoke-WebRequest -Uri $Url -Method $Method -Headers $Headers -UseBasicParsing).StatusCode }
     catch {
         if ($null -eq $_.Exception.Response) { throw }
         $status = [int]$_.Exception.Response.StatusCode
@@ -55,4 +55,8 @@ Assert-Status "$ApiUrl/api/products?category=Unknown" 400
 Assert-Status "$ApiUrl/api/products?sort=unknown" 400
 Assert-Status "$ApiUrl/api/products/00000000-0000-0000-0000-000000000000" 404
 Assert-Status "$WebUrl/api/catalog/health" 404
+Assert-Status "$WebUrl/api/shop/cart" 401
+Assert-Status "$WebUrl/api/shop/auth/logout" 403 'POST' @{ Origin = 'https://example.com' }
+Assert-Status "$WebUrl/api/shop/auth/logout" 400 'POST' @{ Origin = 'http://localhost:3000' }
+Assert-Status "$WebUrl/api/shop/unknown" 404
 Write-Host "Verified $checks checks against the running application."

@@ -1,5 +1,10 @@
 import { Storefront } from "@/components/storefront";
+import { ShoppingProvider } from "@/components/shopping";
 
 export default function Home() {
-  return <Storefront />;
+  return (
+    <ShoppingProvider>
+      <Storefront />
+    </ShoppingProvider>
+  );
 }

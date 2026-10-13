@@ -5,4 +5,7 @@
     <Project Path="src/Commerce.Infrastructure/Commerce.Infrastructure.csproj" />
     <Project Path="src/Commerce.Api/Commerce.Api.csproj" />
   </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Commerce.IntegrationTests/Commerce.IntegrationTests.csproj" />
+  </Folder>
 </Solution>
