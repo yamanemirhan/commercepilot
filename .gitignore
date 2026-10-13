@@ -1,0 +1,29 @@
+# Dependencies and build output
+**/node_modules/
+**/.next/
+**/bin/
+**/obj/
+**/TestResults/
+**/playwright-report/
+**/test-results/
+*.tsbuildinfo
+
+# Local configuration and private working material
+.env
+.env.*
+!.env.example
+**/.env.local
+.local/
+**/*ROADMAP*.md
+**/*roadmap*.md
+**/*PLAN*.md
+**/*plan*.md
+AGENTS.md
+.agents/
+.codex/
+.vs/
+.idea/
+*.user
+*.log
+.DS_Store
+Thumbs.db
