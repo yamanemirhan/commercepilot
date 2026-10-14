@@ -4,7 +4,7 @@ A considered storefront for everyday technology, built with Next.js, ASP.NET Cor
 
 Browse 32 fictional products across audio, workspace, everyday essentials, and gaming. Search, combine category and price filters, check availability, sort results, and inspect product details. Sign in with a local demo account to save a personal shopping bag, change quantities, or remove items. Catalog data, cart contents, and totals come from PostgreSQL through the .NET API.
 
-This version supports **catalog browsing, demo accounts, persistent shopping bags, explicit order approvals, simulated payments, delivery tracking, cancellations, and refunds**. MCP tools and the AI assistant are not implemented yet. Products and specifications are fictional; there are no real payments.
+This version supports **catalog browsing, demo accounts, persistent shopping bags, explicit order approvals, simulated payments, delivery tracking, cancellations, refunds, and read-only MCP catalog and personal bag tools**. The AI assistant is not implemented yet. Products and specifications are fictional; there are no real payments.
 
 ## Run locally
 
@@ -69,6 +69,7 @@ Browser -> Next.js same-origin gateways -> ASP.NET Core API
                                          -> Catalog / Cart / Order services
                                          -> EF Core / PostgreSQL
 Demo scheduler -> Order service -> persisted payment / shipment transitions
+MCP client -> ASP.NET Core MCP server -> Catalog / Cart services -> PostgreSQL
 ```
 
 | Directory | Responsibility |
@@ -78,10 +79,12 @@ Demo scheduler -> Order service -> persisted payment / shipment transitions
 | `src/Commerce.Application` | Catalog/cart/order contracts and input validation |
 | `src/Commerce.Infrastructure` | EF Core persistence, Identity users, migrations, application services, demo seeds |
 | `src/Commerce.Api` | Authenticated HTTP endpoints, CSRF validation, rate limiting, health checks |
+| `src/Commerce.Mcp` | Streamable HTTP MCP endpoint with public catalog search and authorized personal bag reads |
+| `tools/Commerce.McpProbe` | Console MCP client for discovery, catalog calls and optional local shopper login |
 | `tests/Commerce.IntegrationTests` | Real PostgreSQL tests for identity, ownership, approvals, stock concurrency and payment/order transitions |
 | `scripts` | Local startup and running-application verification |
 
-The API owns query validation. Prices use `numeric(12,2)` with an explicit currency. Database constraints reject negative prices and stock, and refunds greater than captured funds. Search escapes SQL `LIKE` metacharacters; paging has a stable tie-breaker. The gateways allow only documented routes and methods and do not forward arbitrary upstream paths.
+The API and MCP adapters validate catalog queries using the same application contract. Prices use `numeric(12,2)` with an explicit currency. Database constraints reject negative prices and stock, and refunds greater than captured funds. Search escapes SQL `LIKE` metacharacters; paging has a stable tie-breaker. The gateways allow only documented routes and methods and do not forward arbitrary upstream paths.
 
 Cart mutations share an application service that obtains prices from the database. A PostgreSQL row lock on the authenticated owner serializes concurrent mutations, including the first addition to an empty bag. The API obtains the owner from the authenticated principal, not client-supplied IDs. Cart reads recalculate prices and availability; unavailable quantities are flagged for correction.
 
@@ -107,6 +110,7 @@ GET /api/auth/csrf
 GET /api/auth/session
 POST /api/auth/login
 POST /api/auth/logout
+POST /api/auth/mcp-token
 GET /api/cart
 POST /api/cart/items
 PUT /api/cart/items/{productId}
@@ -125,6 +129,42 @@ POST /api/actions/{id}/reject
 Supported filters: `search`, `category`, `minPrice`, `maxPrice`, `inStock`. Sort values: `featured`, `price-asc`, `price-desc`, `name`. Page size is limited to 48. Invalid filters return HTTP 400; missing product IDs return HTTP 404. API and database failures produce an explicit storefront error instead of fabricated fallback products.
 
 ## Development
+
+### MCP access
+
+After the normal local startup, enable the optional MCP service:
+
+```powershell
+docker compose --profile mcp up --build -d mcp
+Invoke-RestMethod http://127.0.0.1:5081/health/ready
+```
+
+With the .NET 10 SDK installed, run the console client from the repository root:
+
+```powershell
+dotnet run --project tools/Commerce.McpProbe -- "wireless"
+```
+
+The client connects to `http://127.0.0.1:5081/mcp`, lists available tools and their input schemas (`tools/list`), and calls `search_products` (`tools/call`). It prints structured product data from PostgreSQL, including IDs, prices, stock and pagination. Replace `wireless` with another search term. No language model or Ollama installation is needed.
+
+The server uses the official MCP C# SDK 2.2.0 with stateless Streamable HTTP. Public `search_products` accepts the same catalog filters and limits as the HTTP API. Invalid values return a tool error. Both interfaces reuse `ICatalogService` and the same database queries.
+
+To read your personal bag through `get_cart`, use either local demo account:
+
+```powershell
+dotnet run --project tools/Commerce.McpProbe -- --cart alex
+dotnet run --project tools/Commerce.McpProbe -- --cart sam
+```
+
+The client prompts for the account's existing local password without echoing it. It signs in through the API using cookies and CSRF, obtains a five-minute MCP credential, and sends it in the MCP HTTP Authorization header. Credentials stay in process memory and are never printed. The console closes its separate API session after issuance; this does not sign out the storefront. Use the demo-accounts script above if you need your local password. Do not put passwords or access tokens in command arguments.
+
+`get_cart` has no public parameters: the server takes the owner from the verified principal. The `cart:read` scope is required for discovery and invocation. Anonymous clients discover only `search_products`; guessing `get_cart` does not bypass authorization. A valid shopper credential exposes both tools. Invalid, expired, tampered, wrong-audience or wrong-issuer credentials return HTTP 401. Deleted or locked accounts and changed security stamps are rejected on each request. The token endpoint accepts no caller-selected owner, audience or scope and requires an authenticated session plus CSRF; issuance is limited to 10 per minute per user.
+
+This is a **local first-party credential flow, not OAuth discovery or third-party MCP sign-in**. The API and MCP host share the existing Data Protection key ring, using a separate versioned MCP purpose and an explicit audience/issuer. Both hosts are in the same trust boundary. Sign-out ends the API session but does not revoke an issued credential; it expires after five minutes, with no refresh token. External MCP clients and hosted deployments need a standards-based authorization deployment and HTTPS.
+
+The endpoint binds to loopback, restricts allowed hosts and rejects browser-origin requests; use a native MCP client. No mutation, order, or approval tools are exposed. Read-only annotations describe behavior to clients; server code and authorization enforce access. Stateless transport does not provide conversation history. The API initializes the database; the MCP service reads the migrated data. If readiness fails during initial startup, wait for API readiness and retry. Stop the optional service with `docker compose --profile mcp stop mcp`.
+
+### Local source development
 
 For live editing, install .NET 10 SDK and Node.js 24 LTS. Initialize `.env` using the startup script once, then stop the application containers and keep the database running:
 
@@ -176,6 +216,8 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\test.ps1
 The fixture creates a uniquely named test database, applies the real migrations, and removes only that test database afterward. It never resets the development catalog or bags. Tests cover unauthenticated access, secure cookie attributes, sign-out, CSRF rejection, ownership isolation, tampered prices, invalid quantities, stock bounds, and concurrent additions. A PostgreSQL account with permission to create a test database is required (the local Compose account has this permission).
 
 Order tests also cover immutable approval snapshots, expiry, superseded/rejected approvals, stale prices/stock/cart contents, duplicate confirmation, concurrent last-item purchases, failed and delayed payments, cancellation and late-capture prevention, delivery eligibility, and refund limits. A controlled test clock advances time without waiting for simulation timers.
+
+MCP tests use the real SDK client and HTTP transport against the test host and PostgreSQL. They cover tool discovery, filtered results, unchanged stock, invalid input, unavailable confirmation tools, rejected browser origins/hosts, protected credential issuance, expiry/tampering/audience/issuer checks, deleted/locked accounts, changed security stamps, missing scopes and per-user bag isolation even when an owner argument is forged.
 
 Build checks:
 

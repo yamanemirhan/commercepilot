@@ -31,6 +31,21 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+  mcp:
+    profiles: ["mcp"]
+    build:
+      context: .
+      dockerfile: src/Commerce.Mcp/Dockerfile
+    environment:
+      ASPNETCORE_HTTP_PORTS: 8080
+      ConnectionStrings__Commerce: Host=postgres;Database=commercepilot;Username=commercepilot;Password=${POSTGRES_PASSWORD}
+    ports:
+      - "127.0.0.1:5081:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      api:
+        condition: service_started
   web:
     build:
       context: web

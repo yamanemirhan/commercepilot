@@ -39,6 +39,14 @@ public static class ShoppingEndpoints
             return Results.NoContent();
         }).RequireAuthorization().AddEndpointFilter<CsrfFilter>();
 
+        // Only the signed-in user's identity and the fixed read-only scope can be issued.
+        auth.MapPost("/mcp-token", async (HttpContext context, UserManager<CommerceUser> users, McpAccessTokens tokens) =>
+        {
+            var user = await users.GetUserAsync(context.User);
+            if (user is null || await users.IsLockedOutAsync(user)) return Results.Unauthorized();
+            return Results.Ok(tokens.Issue(user));
+        }).RequireAuthorization().AddEndpointFilter<CsrfFilter>().RequireRateLimiting("mcp-token");
+
         var cart = app.MapGroup("/api/cart").WithTags("Cart").RequireAuthorization();
         cart.MapGet("/", async (ClaimsPrincipal principal, ICartService carts, CancellationToken ct) =>
             Results.Ok(await carts.GetAsync(Owner(principal), ct)));

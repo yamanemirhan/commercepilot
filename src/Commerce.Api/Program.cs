@@ -4,6 +4,7 @@ using Commerce.Infrastructure;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Identity;
 using System.Threading.RateLimiting;
+using System.Security.Claims;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
@@ -17,6 +18,7 @@ builder.Services.AddDbContext<CommerceDbContext>(options => options.UseNpgsql(
 builder.Services.AddScoped<ICatalogService, CatalogService>();
 builder.Services.AddScoped<ICartService, CartService>();
 builder.Services.AddSingleton(TimeProvider.System);
+builder.Services.AddSingleton<McpAccessTokens>();
 builder.Services.AddScoped<IOrderService, OrderService>();
 if (!builder.Environment.IsEnvironment("Testing")) builder.Services.AddHostedService<DemoOrderWorker>();
 builder.Services.AddIdentityCore<CommerceUser>(options =>
@@ -56,6 +58,11 @@ builder.Services.AddRateLimiter(options =>
         context.Connection.RemoteIpAddress?.ToString() ?? "unknown", _ => new FixedWindowRateLimiterOptions
         {
             PermitLimit = 20, Window = TimeSpan.FromMinutes(1), QueueLimit = 0
+        }));
+    options.AddPolicy("mcp-token", context => RateLimitPartition.GetFixedWindowLimiter(
+        context.User.FindFirstValue(ClaimTypes.NameIdentifier) ?? "anonymous", _ => new FixedWindowRateLimiterOptions
+        {
+            PermitLimit = 10, Window = TimeSpan.FromMinutes(1), QueueLimit = 0
         }));
 });
 builder.Services.AddHealthChecks().AddCheck<DatabaseHealthCheck>("postgres", tags: ["ready"]);
