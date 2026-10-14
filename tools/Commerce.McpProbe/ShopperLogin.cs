@@ -4,7 +4,7 @@ using System.Text;
 
 internal static class ShopperLogin
 {
-    public static async Task<string> GetTokenAsync(string account, CancellationToken ct)
+    public static async Task<string> GetTokenAsync(string account, CancellationToken ct, bool allowCartWrite = false)
     {
         var email = account.ToLowerInvariant() switch
         {
@@ -20,7 +20,7 @@ internal static class ShopperLogin
         password = "";
         try
         {
-            using var response = await PostAsync(api, "/api/auth/mcp-token", null, ct);
+            using var response = await PostAsync(api, allowCartWrite ? "/api/auth/mcp-cart-token" : "/api/auth/mcp-token", null, ct);
             var token = await response.Content.ReadFromJsonAsync<TokenResponse>(ct)
                 ?? throw new InvalidOperationException("The API did not issue an MCP credential.");
             Console.WriteLine($"Signed in as {email}. Scope: {token.Scope}. Expires: {token.ExpiresAt:O}");

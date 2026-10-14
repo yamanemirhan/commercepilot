@@ -41,13 +41,15 @@ public sealed class McpTests(CommerceFixture fixture) : IClassFixture<CommerceFi
     }, http);
 
     [Fact]
-    public async Task Discovery_exposes_only_public_search_with_schema_and_no_owner_argument()
+    public async Task Discovery_exposes_only_public_catalog_with_schema_and_no_owner_argument()
     {
         using var factory = Factory(); using var http = factory.CreateClient();
         await using var transport = Transport(http);
         await using var client = await McpClient.CreateAsync(transport);
-        var tool = Assert.Single(await client.ListToolsAsync());
-        Assert.Equal("search_products", tool.Name);
+        var listed = await client.ListToolsAsync();
+        Assert.Equal(2, listed.Count);
+        Assert.Contains(listed, tool => tool.Name == "get_product");
+        var tool = Assert.Single(listed, tool => tool.Name == "search_products");
         var names = tool.JsonSchema.GetProperty("properties").EnumerateObject().Select(p => p.Name).ToArray();
         Assert.Contains("search", names); Assert.Contains("pageSize", names);
         Assert.DoesNotContain("userId", names); Assert.DoesNotContain("catalog", names);
@@ -178,7 +180,7 @@ public sealed class McpTests(CommerceFixture fixture) : IClassFixture<CommerceFi
                 await using var transport = Transport(http);
                 await using var client = await McpClient.CreateAsync(transport);
                 var listed = await client.ListToolsAsync();
-                Assert.Equal(2, listed.Count);
+                Assert.Equal(3, listed.Count);
                 var tool = Assert.Single(listed, t => t.Name == "get_cart");
                 Assert.Empty(tool.JsonSchema.GetProperty("properties").EnumerateObject());
                 var result = await client.CallToolAsync("get_cart", new Dictionary<string, object?> { ["userId"] = forgedOwner });
@@ -253,7 +255,9 @@ public sealed class McpTests(CommerceFixture fixture) : IClassFixture<CommerceFi
             http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", format.Protect(ticket));
             await using var transport = Transport(http);
             await using var client = await McpClient.CreateAsync(transport);
-            Assert.Equal("search_products", Assert.Single(await client.ListToolsAsync()).Name);
+            var listed = await client.ListToolsAsync();
+            Assert.Equal(2, listed.Count);
+            Assert.DoesNotContain(listed, tool => tool.Name == "get_cart" || tool.Name == "add_to_cart");
             await AssertCartDeniedAsync(client);
         }
     }

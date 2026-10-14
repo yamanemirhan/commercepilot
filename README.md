@@ -4,7 +4,7 @@ A considered storefront for everyday technology, built with Next.js, ASP.NET Cor
 
 Browse 32 fictional products across audio, workspace, everyday essentials, and gaming. Search, combine category and price filters, check availability, sort results, and inspect product details. Sign in with a local demo account to save a personal shopping bag, change quantities, or remove items. Catalog data, cart contents, and totals come from PostgreSQL through the .NET API.
 
-This version supports **catalog browsing, demo accounts, persistent shopping bags, explicit order approvals, simulated payments, delivery tracking, cancellations, refunds, and read-only MCP catalog and personal bag tools**. The AI assistant is not implemented yet. Products and specifications are fictional; there are no real payments.
+This version supports **catalog browsing, demo accounts, persistent shopping bags, explicit order approvals, simulated payments, delivery tracking, cancellations, refunds, and MCP catalog, bag reading and add-to-bag tools**. The AI assistant is not implemented yet. Products and specifications are fictional; there are no real payments.
 
 ## Run locally
 
@@ -79,7 +79,7 @@ MCP client -> ASP.NET Core MCP server -> Catalog / Cart services -> PostgreSQL
 | `src/Commerce.Application` | Catalog/cart/order contracts and input validation |
 | `src/Commerce.Infrastructure` | EF Core persistence, Identity users, migrations, application services, demo seeds |
 | `src/Commerce.Api` | Authenticated HTTP endpoints, CSRF validation, rate limiting, health checks |
-| `src/Commerce.Mcp` | Streamable HTTP MCP endpoint with public catalog search and authorized personal bag reads |
+| `src/Commerce.Mcp` | Streamable HTTP MCP endpoint with public catalog tools and scoped personal bag access |
 | `tools/Commerce.McpProbe` | Console MCP client for discovery, catalog calls and optional local shopper login |
 | `tests/Commerce.IntegrationTests` | Real PostgreSQL tests for identity, ownership, approvals, stock concurrency and payment/order transitions |
 | `scripts` | Local startup and running-application verification |
@@ -111,6 +111,7 @@ GET /api/auth/session
 POST /api/auth/login
 POST /api/auth/logout
 POST /api/auth/mcp-token
+POST /api/auth/mcp-cart-token
 GET /api/cart
 POST /api/cart/items
 PUT /api/cart/items/{productId}
@@ -147,7 +148,7 @@ dotnet run --project tools/Commerce.McpProbe -- "wireless"
 
 The client connects to `http://127.0.0.1:5081/mcp`, lists available tools and their input schemas (`tools/list`), and calls `search_products` (`tools/call`). It prints structured product data from PostgreSQL, including IDs, prices, stock and pagination. Replace `wireless` with another search term. No language model or Ollama installation is needed.
 
-The server uses the official MCP C# SDK 2.2.0 with stateless Streamable HTTP. Public `search_products` accepts the same catalog filters and limits as the HTTP API. Invalid values return a tool error. Both interfaces reuse `ICatalogService` and the same database queries.
+The server uses the official MCP C# SDK 2.2.0 with stateless Streamable HTTP. Public `search_products` accepts the same catalog filters and limits as the HTTP API. `get_product` reads one product by its real UUID. Invalid values and missing products return tool errors. Both interfaces reuse `ICatalogService` and the same database queries.
 
 To read your personal bag through `get_cart`, use either local demo account:
 
@@ -158,11 +159,22 @@ dotnet run --project tools/Commerce.McpProbe -- --cart sam
 
 The client prompts for the account's existing local password without echoing it. It signs in through the API using cookies and CSRF, obtains a five-minute MCP credential, and sends it in the MCP HTTP Authorization header. Credentials stay in process memory and are never printed. The console closes its separate API session after issuance; this does not sign out the storefront. Use the demo-accounts script above if you need your local password. Do not put passwords or access tokens in command arguments.
 
-`get_cart` has no public parameters: the server takes the owner from the verified principal. The `cart:read` scope is required for discovery and invocation. Anonymous clients discover only `search_products`; guessing `get_cart` does not bypass authorization. A valid shopper credential exposes both tools. Invalid, expired, tampered, wrong-audience or wrong-issuer credentials return HTTP 401. Deleted or locked accounts and changed security stamps are rejected on each request. The token endpoint accepts no caller-selected owner, audience or scope and requires an authenticated session plus CSRF; issuance is limited to 10 per minute per user.
+`get_cart` has no public parameters: the server takes the owner from the verified principal. The `cart:read` scope is required for discovery and invocation. Anonymous clients discover `search_products` and `get_product`; a read credential also exposes `get_cart`. Guessing a hidden tool's name does not bypass authorization. Invalid, expired, tampered, wrong-audience or wrong-issuer credentials return HTTP 401. Deleted or locked accounts and changed security stamps are rejected on each request. The credential endpoints accept no caller-selected owner, audience or scope and require an authenticated session plus CSRF; they share a limit of 10 issuances per minute per user.
+
+To inspect a product and add one unit to Alex's bag, copy a product ID from the search result. This example uses the seeded Forma Wireless ID:
+
+```powershell
+dotnet run --project tools/Commerce.McpProbe -- --product 10000000-0000-0000-0000-000000000001
+dotnet run --project tools/Commerce.McpProbe -- --add alex 10000000-0000-0000-0000-000000000001 1
+```
+
+The `--add` command explicitly obtains a five-minute `cart:read cart:write` credential through `/api/auth/mcp-cart-token`, then calls `get_product`, `add_to_cart` and `get_cart` in sequence. The ordinary `/api/auth/mcp-token` credential remains read-only. `add_to_cart` requires `cart:write` and accepts only `productId` and `quantity`; the owner and current prices come from the server. Quantity is additive and must be 1–99, with the resulting quantity bounded by 99 and available stock. The command really updates the chosen account's bag, which can be inspected or edited in the storefront. It neither reserves stock nor creates an order or payment.
+
+Adding is not idempotent: repeating a successful call adds the quantity again. The console never automatically retries this mutation. If the connection fails after sending it, inspect the bag with `--cart` before deciding whether another addition is needed. Tool errors report invalid quantity, unavailable stock or missing products without fabricating a successful result.
 
 This is a **local first-party credential flow, not OAuth discovery or third-party MCP sign-in**. The API and MCP host share the existing Data Protection key ring, using a separate versioned MCP purpose and an explicit audience/issuer. Both hosts are in the same trust boundary. Sign-out ends the API session but does not revoke an issued credential; it expires after five minutes, with no refresh token. External MCP clients and hosted deployments need a standards-based authorization deployment and HTTPS.
 
-The endpoint binds to loopback, restricts allowed hosts and rejects browser-origin requests; use a native MCP client. No mutation, order, or approval tools are exposed. Read-only annotations describe behavior to clients; server code and authorization enforce access. Stateless transport does not provide conversation history. The API initializes the database; the MCP service reads the migrated data. If readiness fails during initial startup, wait for API readiness and retry. Stop the optional service with `docker compose --profile mcp stop mcp`.
+The endpoint binds to loopback, restricts allowed hosts and rejects browser-origin requests; use a native MCP client. No order or approval tools are exposed. Tool annotations describe behavior to clients; server code and authorization enforce access. Stateless transport does not provide conversation history. The API initializes the database; the MCP service uses the existing application services. If readiness fails during initial startup, wait for API readiness and retry. Stop the optional service with `docker compose --profile mcp stop mcp`.
 
 ### Local source development
 
@@ -218,6 +230,8 @@ The fixture creates a uniquely named test database, applies the real migrations,
 Order tests also cover immutable approval snapshots, expiry, superseded/rejected approvals, stale prices/stock/cart contents, duplicate confirmation, concurrent last-item purchases, failed and delayed payments, cancellation and late-capture prevention, delivery eligibility, and refund limits. A controlled test clock advances time without waiting for simulation timers.
 
 MCP tests use the real SDK client and HTTP transport against the test host and PostgreSQL. They cover tool discovery, filtered results, unchanged stock, invalid input, unavailable confirmation tools, rejected browser origins/hosts, protected credential issuance, expiry/tampering/audience/issuer checks, deleted/locked accounts, changed security stamps, missing scopes and per-user bag isolation even when an owner argument is forged.
+
+Cart-write tests additionally check read/write separation, protected write grants, server-owned prices and user identity, additive quantities, persistence through MCP and HTTP, stock/quantity rejection, missing products, and absence of order or inventory-reservation side effects.
 
 Build checks:
 

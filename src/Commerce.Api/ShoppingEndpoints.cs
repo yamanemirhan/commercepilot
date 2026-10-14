@@ -47,6 +47,14 @@ public static class ShoppingEndpoints
             return Results.Ok(tokens.Issue(user));
         }).RequireAuthorization().AddEndpointFilter<CsrfFilter>().RequireRateLimiting("mcp-token");
 
+        // A separate, explicit grant for cart edits. Read credentials never gain write access.
+        auth.MapPost("/mcp-cart-token", async (HttpContext context, UserManager<CommerceUser> users, McpAccessTokens tokens) =>
+        {
+            var user = await users.GetUserAsync(context.User);
+            if (user is null || await users.IsLockedOutAsync(user)) return Results.Unauthorized();
+            return Results.Ok(tokens.Issue(user, allowCartWrite: true));
+        }).RequireAuthorization().AddEndpointFilter<CsrfFilter>().RequireRateLimiting("mcp-token");
+
         var cart = app.MapGroup("/api/cart").WithTags("Cart").RequireAuthorization();
         cart.MapGet("/", async (ClaimsPrincipal principal, ICartService carts, CancellationToken ct) =>
             Results.Ok(await carts.GetAsync(Owner(principal), ct)));

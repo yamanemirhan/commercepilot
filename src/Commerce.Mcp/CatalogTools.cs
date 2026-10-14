@@ -9,6 +9,15 @@ namespace Commerce.Mcp;
 [McpServerToolType]
 public sealed class CatalogTools
 {
+    [McpServerTool(Name = "get_product", ReadOnly = true, Destructive = false,
+        Idempotent = true, OpenWorld = false, UseStructuredContent = true)]
+    [Description("Read a public product by its real ID from search_products. Returns current price and stock. Does not reserve stock.")]
+    public static async Task<ProductDto> GetProduct(
+        [Description("The exact product UUID returned by search_products.")] Guid productId,
+        [FromServices] ICatalogService catalog, CancellationToken cancellationToken) =>
+        await catalog.FindAsync(productId, cancellationToken)
+            ?? throw new McpException("ProductNotFound: This product no longer exists.");
+
     [McpServerTool(Name = "search_products", ReadOnly = true, Destructive = false,
         Idempotent = true, OpenWorld = false, UseStructuredContent = true)]
     [Description("Search the public CommercePilot catalog. Returns real product IDs, prices in USD, current stock and pagination. Does not change a bag, reserve stock or place an order.")]

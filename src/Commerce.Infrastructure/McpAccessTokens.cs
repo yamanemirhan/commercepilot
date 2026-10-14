@@ -11,9 +11,10 @@ public sealed class McpAccessTokens(IDataProtectionProvider protection, TimeProv
     public const string Audience = "commercepilot:mcp";
     public const string Issuer = "commercepilot:api";
     public const string CartRead = "cart:read";
+    public const string CartWrite = "cart:write";
     private readonly TicketDataFormat format = new(protection.CreateProtector("CommercePilot.McpAccessToken", "v1", Audience));
 
-    public McpAccessToken Issue(CommerceUser user)
+    public McpAccessToken Issue(CommerceUser user, bool allowCartWrite = false)
     {
         var now = clock.GetUtcNow();
         var expires = now.AddMinutes(5);
@@ -23,9 +24,10 @@ public sealed class McpAccessTokens(IDataProtectionProvider protection, TimeProv
             new Claim("security_stamp", user.SecurityStamp ?? throw new InvalidOperationException("Missing security stamp.")),
             new Claim("aud", Audience), new Claim("iss", Issuer), new Claim("scope", CartRead)
         }, Scheme));
+        if (allowCartWrite) ((ClaimsIdentity)principal.Identity!).AddClaim(new Claim("scope", CartWrite));
         var ticket = new AuthenticationTicket(principal,
             new AuthenticationProperties { IssuedUtc = now, ExpiresUtc = expires }, Scheme);
-        return new(format.Protect(ticket), expires, CartRead);
+        return new(format.Protect(ticket), expires, allowCartWrite ? $"{CartRead} {CartWrite}" : CartRead);
     }
 
     public AuthenticationTicket? Validate(string token)

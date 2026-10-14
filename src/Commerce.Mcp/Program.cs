@@ -25,8 +25,13 @@ public sealed class McpProgram
         builder.Services.AddSingleton<McpAccessTokens>();
         builder.Services.AddAuthentication(McpAccessTokens.Scheme)
             .AddScheme<AuthenticationSchemeOptions, McpAuthenticationHandler>(McpAccessTokens.Scheme, _ => { });
-        builder.Services.AddAuthorization(options => options.AddPolicy(McpAccessTokens.CartRead,
-            policy => policy.RequireAuthenticatedUser().RequireClaim("scope", McpAccessTokens.CartRead)));
+        builder.Services.AddAuthorization(options =>
+        {
+            options.AddPolicy(McpAccessTokens.CartRead,
+                policy => policy.RequireAuthenticatedUser().RequireClaim("scope", McpAccessTokens.CartRead));
+            options.AddPolicy(McpAccessTokens.CartWrite,
+                policy => policy.RequireAuthenticatedUser().RequireClaim("scope", McpAccessTokens.CartWrite));
+        });
 
         builder.Services.AddMcpServer()
             .WithHttpTransport(options => options.SessionMode = HttpServerSessionMode.Stateless)
