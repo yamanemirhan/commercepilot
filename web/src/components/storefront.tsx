@@ -593,8 +593,8 @@ export function Storefront() {
                 </span>
                 <AddToBag product={detail} />
                 <div className="detail-notice">
-                  Your bag is saved to your account. This is a demo collection;
-                  checkout is not available yet.
+                  Your bag is saved to your account. Review and approve a demo
+                  order from your bag. No real charges or deliveries.
                 </div>
               </div>
             </div>
@@ -634,8 +634,9 @@ export function Storefront() {
         <p className="about-note">
           CommercePilot is an interactive commerce demo. Products,
           specifications, prices, and stock are fictional. This preview lets you
-          explore the catalog and save a personal bag. Checkout and the AI
-          shopping assistant are not yet enabled.
+          explore the catalog, save a personal bag, approve demo orders and
+          follow simulated deliveries. The AI shopping assistant is not yet
+          enabled.
         </p>
         <button
           className="button dark"

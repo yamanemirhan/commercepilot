@@ -7,6 +7,9 @@ const methods: Record<string, string[]> = {
   "auth/logout": ["POST"],
   cart: ["GET"],
   "cart/items": ["POST"],
+  orders: ["GET"],
+  actions: ["GET"],
+  "orders/prepare": ["POST"],
 };
 
 async function forward(
@@ -19,7 +22,19 @@ async function forward(
     /^cart\/items\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
       route,
     );
-  const allowed = itemRoute ? ["PUT", "DELETE"] : methods[route];
+  const guid = "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}";
+  const orderRead = new RegExp(`^(orders|actions)/${guid}$`, "i").test(route);
+  const orderWrite = new RegExp(
+    `^(orders/${guid}/prepare-(cancellation|refund)|actions/${guid}/(confirm|reject))$`,
+    "i",
+  ).test(route);
+  const allowed = itemRoute
+    ? ["PUT", "DELETE"]
+    : orderRead
+      ? ["GET"]
+      : orderWrite
+        ? ["POST"]
+        : methods[route];
   if (!allowed)
     return NextResponse.json({ detail: "Not found." }, { status: 404 });
   if (!allowed.includes(request.method))
@@ -102,7 +117,7 @@ async function forward(
     return NextResponse.json(
       {
         detail:
-          "We couldn’t reach the store. Refresh your bag before trying again.",
+          "We couldn’t reach the store. Refresh to check the result before trying again. Repeating the same approval will not place a second order.",
       },
       { status: 503 },
     );

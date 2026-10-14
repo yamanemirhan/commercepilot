@@ -13,6 +13,7 @@ import {
 import {
   ArrowRight,
   Check,
+  Package,
   LoaderCircle,
   LogOut,
   Minus,
@@ -24,6 +25,7 @@ import {
 } from "lucide-react";
 import { money, Product } from "@/lib/catalog";
 import { ProductArt } from "./product-art";
+import { OrderCenter } from "./orders";
 
 type User = { id: string; email: string; displayName: string };
 type CartItem = {
@@ -73,7 +75,7 @@ class ShopError extends Error {
   }
 }
 
-async function request<T>(
+export async function request<T>(
   path: string,
   method = "GET",
   body?: unknown,
@@ -129,7 +131,7 @@ export function ShoppingProvider({ children }: { children: ReactNode }) {
 
   const refresh = useCallback(async () => {
     const version = ++generation.current;
-    setState({ user: null, cart: null, ready: false });
+    setState((current) => ({ ...current, ready: false }));
     try {
       const session = await request<{ user: User | null }>("auth/session");
       const cart = session.user ? await request<Cart>("cart") : null;
@@ -274,7 +276,7 @@ export function ShoppingProvider({ children }: { children: ReactNode }) {
   );
 }
 
-function useShopping() {
+export function useShopping() {
   const context = useContext(ShoppingContext);
   if (!context) throw new Error("ShoppingProvider is required.");
   return context;
@@ -286,6 +288,8 @@ export function ShoppingControls() {
   const bagDialog = useRef<HTMLDialogElement>(null);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [ordersOpen, setOrdersOpen] = useState(false);
+  const [checkout, setCheckout] = useState(false);
   useEffect(() => {
     if (shop.accountOpen) accountDialog.current?.showModal();
     else {
@@ -307,6 +311,20 @@ export function ShoppingControls() {
   return (
     <>
       <div className="shopping-controls">
+        {shop.user && (
+          <button
+            className="account-trigger"
+            disabled={!shop.ready}
+            onClick={() => {
+              setCheckout(false);
+              setOrdersOpen(true);
+            }}
+            aria-label="My orders"
+          >
+            <Package size={17} />
+            <span>Orders</span>
+          </button>
+        )}
         <button
           className="account-trigger"
           onClick={() => shop.setAccountOpen(true)}
@@ -579,8 +597,19 @@ export function ShoppingControls() {
                   your bag are not reserved.
                 </p>
                 <div className="checkout-notice">
-                  This is a demo bag. Checkout is not available yet.
+                  Demo checkout. No real charges or deliveries.
                 </div>
+                <button
+                  className="button dark full-width"
+                  disabled={shop.busy || !shop.cart.isAvailable}
+                  onClick={() => {
+                    shop.setBagOpen(false);
+                    setCheckout(true);
+                    setOrdersOpen(true);
+                  }}
+                >
+                  Review order <ArrowRight size={16} />
+                </button>
                 <button
                   className="button light full-width"
                   onClick={() => shop.setBagOpen(false)}
@@ -610,6 +639,14 @@ export function ShoppingControls() {
           )}
         </div>
       </dialog>
+      {shop.user && (
+        <OrderCenter
+          key={shop.user.id}
+          open={ordersOpen}
+          checkout={checkout}
+          onClose={() => setOrdersOpen(false)}
+        />
+      )}
     </>
   );
 }

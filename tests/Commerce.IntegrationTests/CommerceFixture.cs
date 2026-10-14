@@ -82,10 +82,19 @@ public sealed class CommerceFixture : IAsyncLifetime
 
 public sealed class CommerceFactory(string connection) : WebApplicationFactory<Program>
 {
+    public TestClock Clock { get; } = new();
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         builder.UseEnvironment("Testing");
         builder.UseSetting("ConnectionStrings:Commerce", connection);
         builder.UseSetting("Logging:LogLevel:Default", "Warning");
+        builder.ConfigureServices(services => services.AddSingleton<TimeProvider>(Clock));
     }
+}
+
+public sealed class TestClock : TimeProvider
+{
+    private DateTimeOffset now = DateTimeOffset.UtcNow;
+    public override DateTimeOffset GetUtcNow() => now;
+    public void Advance(TimeSpan duration) => now += duration;
 }

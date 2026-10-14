@@ -10,11 +10,36 @@ public sealed class CommerceDbContext(DbContextOptions<CommerceDbContext> option
 {
     public DbSet<Product> Products => Set<Product>();
     public DbSet<CartItem> CartItems => Set<CartItem>();
+    public DbSet<Order> Orders => Set<Order>();
+    public DbSet<PendingAction> PendingActions => Set<PendingAction>();
     public DbSet<DataProtectionKey> DataProtectionKeys { get; set; } = null!;
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);
+        var action = modelBuilder.Entity<PendingAction>();
+        action.HasKey(a => a.Id);
+        action.HasOne<CommerceUser>().WithMany().HasForeignKey(a => a.UserId).OnDelete(DeleteBehavior.Restrict);
+        action.HasIndex(a => new { a.UserId, a.Status, a.CreatedAt });
+        action.Property(a => a.Kind).HasMaxLength(24);
+        action.Property(a => a.Status).HasMaxLength(24);
+        action.Property(a => a.SnapshotHash).HasMaxLength(64);
+        var order = modelBuilder.Entity<Order>();
+        order.HasKey(o => o.Id);
+        order.HasOne<CommerceUser>().WithMany().HasForeignKey(o => o.UserId).OnDelete(DeleteBehavior.Restrict);
+        order.HasIndex(o => new { o.UserId, o.CreatedAt });
+        order.HasIndex(o => o.NextTransitionAt);
+        order.Property(o => o.Total).HasPrecision(12, 2);
+        order.Property(o => o.CapturedAmount).HasPrecision(12, 2);
+        order.Property(o => o.RefundedAmount).HasPrecision(12, 2);
+        order.Property(o => o.Currency).HasMaxLength(3);
+        order.Property(o => o.Status).HasMaxLength(24);
+        order.Property(o => o.PaymentStatus).HasMaxLength(24);
+        order.ToTable("Orders", t => t.HasCheckConstraint("CK_Orders_Money",
+            "\"Total\" >= 0 AND \"CapturedAmount\" >= 0 AND \"CapturedAmount\" <= \"Total\" AND \"RefundedAmount\" >= 0 AND \"RefundedAmount\" <= \"CapturedAmount\""));
+        order.HasMany(o => o.Events).WithOne().HasForeignKey(e => e.OrderId);
+        modelBuilder.Entity<OrderEvent>().Property(e => e.Title).HasMaxLength(100);
+        modelBuilder.Entity<OrderEvent>().Property(e => e.Detail).HasMaxLength(500);
         modelBuilder.Entity<CommerceUser>().Property(u => u.DisplayName).HasMaxLength(100);
         var cartItem = modelBuilder.Entity<CartItem>();
         cartItem.HasKey(i => new { i.UserId, i.ProductId });

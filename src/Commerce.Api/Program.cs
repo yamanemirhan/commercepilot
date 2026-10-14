@@ -16,6 +16,9 @@ builder.Services.AddDbContext<CommerceDbContext>(options => options.UseNpgsql(
         ?? throw new InvalidOperationException("ConnectionStrings__Commerce is required.")));
 builder.Services.AddScoped<ICatalogService, CatalogService>();
 builder.Services.AddScoped<ICartService, CartService>();
+builder.Services.AddSingleton(TimeProvider.System);
+builder.Services.AddScoped<IOrderService, OrderService>();
+if (!builder.Environment.IsEnvironment("Testing")) builder.Services.AddHostedService<DemoOrderWorker>();
 builder.Services.AddIdentityCore<CommerceUser>(options =>
 {
     options.User.RequireUniqueEmail = true;
@@ -65,7 +68,8 @@ app.UseAuthorization();
 app.UseRateLimiter();
 app.Use(async (context, next) =>
 {
-    if (context.Request.Path.StartsWithSegments("/api/auth") || context.Request.Path.StartsWithSegments("/api/cart"))
+    if (context.Request.Path.StartsWithSegments("/api/auth") || context.Request.Path.StartsWithSegments("/api/cart")
+        || context.Request.Path.StartsWithSegments("/api/orders") || context.Request.Path.StartsWithSegments("/api/actions"))
         context.Response.Headers.CacheControl = "no-cache, no-store";
     await next();
 });
@@ -96,6 +100,7 @@ catalog.MapGet("/products/{id:guid}", async (Guid id, ICatalogService service, C
 catalog.MapGet("/categories", async (ICatalogService service, CancellationToken ct) =>
     Results.Ok(await service.CategoriesAsync(ct)));
 app.MapShoppingEndpoints();
+app.MapOrderEndpoints();
 app.Run();
 
 public partial class Program;

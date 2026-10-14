@@ -29,7 +29,7 @@ Assert-That ($categories.Count -eq 4 -and ($categories | Measure-Object count -S
 $audio = Invoke-RestMethod "$ApiUrl/api/products?category=Audio&maxPrice=100&sort=price-asc"
 Assert-That ($audio.total -eq 4) 'Combined category and price filters return the expected products'
 Assert-That (@($audio.items | Where-Object { $_.category -ne 'Audio' -or $_.price -gt 100 }).Count -eq 0) 'Filtered results respect all constraints'
-Assert-That (($audio.items.price -join ',') -eq '49,69,89,99') 'Ascending prices are ordered correctly'
+Assert-That ($audio.items[0].price -eq 49 -and $audio.items[1].price -eq 69 -and $audio.items[2].price -eq 89 -and $audio.items[3].price -eq 99) 'Ascending prices are ordered correctly'
 $descending = Invoke-RestMethod "$ApiUrl/api/products?sort=price-desc&pageSize=48"
 Assert-That ($descending.items[0].price -eq 249 -and $descending.items[-1].price -eq 39) 'Descending prices are ordered correctly'
 $search = Invoke-RestMethod "$ApiUrl/api/products?search=FORMA"
@@ -37,7 +37,7 @@ Assert-That ($search.total -eq 1 -and $search.items[0].name -eq 'Forma Wireless'
 $wildcard = Invoke-RestMethod "$ApiUrl/api/products?search=%25"
 Assert-That ($wildcard.total -eq 1 -and $wildcard.items[0].name -eq 'Tempo Mechanical') 'Percent characters are literal, not search wildcards'
 $inStock = Invoke-RestMethod "$ApiUrl/api/products?inStock=true&pageSize=48"
-Assert-That ($inStock.total -eq 31 -and @($inStock.items | Where-Object stock -le 0).Count -eq 0) 'In-stock filtering excludes unavailable products'
+Assert-That ($inStock.total -eq @($catalog.items | Where-Object stock -gt 0).Count -and @($inStock.items | Where-Object stock -le 0).Count -eq 0) 'In-stock filtering reflects current inventory'
 $first = Invoke-RestMethod "$ApiUrl/api/products?page=1"
 $second = Invoke-RestMethod "$ApiUrl/api/products?page=2"
 Assert-That ($first.items.Count -eq 12 -and $second.items.Count -eq 12) 'Pagination returns the configured page size'
@@ -59,4 +59,10 @@ Assert-Status "$WebUrl/api/shop/cart" 401
 Assert-Status "$WebUrl/api/shop/auth/logout" 403 'POST' @{ Origin = 'https://example.com' }
 Assert-Status "$WebUrl/api/shop/auth/logout" 400 'POST' @{ Origin = 'http://localhost:3000' }
 Assert-Status "$WebUrl/api/shop/unknown" 404
+Assert-Status "$WebUrl/api/shop/orders" 401
+Assert-Status "$WebUrl/api/shop/actions" 401
+Assert-Status "$WebUrl/api/shop/actions/00000000-0000-0000-0000-000000000000/confirm" 403 'POST' @{ Origin = 'https://example.com' }
+Assert-Status "$WebUrl/api/shop/actions/00000000-0000-0000-0000-000000000000/confirm" 400 'POST' @{ Origin = 'http://localhost:3000' }
+Assert-Status "$WebUrl/api/shop/actions/00000000-0000-0000-0000-000000000000/confirm" 405
+Assert-Status "$WebUrl/api/shop/orders/00000000-0000-0000-0000-000000000000/advance" 404 'POST' @{ Origin = 'http://localhost:3000' }
 Write-Host "Verified $checks checks against the running application."

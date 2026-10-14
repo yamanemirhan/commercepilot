@@ -4,14 +4,14 @@ A considered storefront for everyday technology, built with Next.js, ASP.NET Cor
 
 Browse 32 fictional products across audio, workspace, everyday essentials, and gaming. Search, combine category and price filters, check availability, sort results, and inspect product details. Sign in with a local demo account to save a personal shopping bag, change quantities, or remove items. Catalog data, cart contents, and totals come from PostgreSQL through the .NET API.
 
-This version supports **catalog browsing, demo accounts, and persistent shopping bags**. Checkout, MCP tools, and the AI assistant are not implemented yet. Products and specifications are fictional; there are no real payments.
+This version supports **catalog browsing, demo accounts, persistent shopping bags, explicit order approvals, simulated payments, delivery tracking, cancellations, and refunds**. MCP tools and the AI assistant are not implemented yet. Products and specifications are fictional; there are no real payments.
 
 ## Run locally
 
 Install Docker Desktop with Linux containers and start it. From the repository root, run:
 
 ```powershell
-./scripts/start.ps1
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\start.ps1
 ```
 
 The script generates a local database password and two unique demo passwords in the ignored `.env` file, builds the application, applies migrations, seeds missing catalog entries/accounts, and waits for readiness. Existing catalog and cart data are preserved. The first run downloads container images and dependencies.
@@ -21,7 +21,7 @@ Open **[localhost:3000](http://localhost:3000)**.
 To view your locally generated sign-in credentials:
 
 ```powershell
-./scripts/demo-accounts.ps1
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\demo-accounts.ps1
 ```
 
 The accounts are `alex@commercepilot.local` and `sam@commercepilot.local`, with separate bags. Click **Sign in**, choose an account, and enter its local password. Open a product to add it to your bag. Refreshing the page, signing out and back in, or rebuilding the API preserves the bag. Quantities must be between 1 and 99 and cannot exceed current stock. A bag does not reserve inventory.
@@ -50,27 +50,44 @@ docker compose down
 
 Ollama and model downloads are not required for this catalog preview. The storefront uses original vector illustrations. Google Fonts is optional; local system fonts are the fallback when offline.
 
+## Try an order
+
+1. Add a product to your bag and choose **Review order**.
+2. Select **Successful payment**, **Delayed payment**, or **Declined payment**, then choose **Review exact order**. Preparation creates a five-minute review, with no inventory reservation or payment.
+3. Inspect the items, exact total, fictional destination, and payment outcome. **Approve** places the order; **Reject** leaves the bag untouched. Closing the dialog leaves the review available under **Orders** until it expires.
+4. Open **Orders** to follow the recorded payment and shipping timeline. The open panel refreshes every five seconds. A successful payment moves to simulated dispatch after approximately two minutes, then delivery after another two minutes. A delayed payment completes after approximately 20 seconds before that shipping sequence begins.
+5. Use **Review cancellation** before dispatch, or **Review refund** within 30 days after delivery. Each requires a separate explicit approval.
+
+No card or personal address is collected. All orders use a fictional destination with zero shipping and tax. A declined payment produces a failed order, releases its reservation, and preserves the bag for a new review. Cancellation releases stock once and either voids a pending payment or refunds captured funds. A delivered-order refund returns the full captured demo amount but does not restock delivered goods. Partial refunds and physical returns are not supported.
+
+If prices, available stock, bag contents, or order eligibility change, the approval is rejected and a new review is required. Expired, rejected, and superseded reviews cannot execute. Repeating a completed confirmation returns the same order without reserving stock or charging again. After a connection failure, refresh the review/status before retrying. The order history shows the most recent 100 orders.
+
 ## Architecture
 
 ```text
-Browser -> Next.js same-origin catalog gateway -> ASP.NET Core API
-                                                -> ICatalogService
-                                                -> EF Core / PostgreSQL
+Browser -> Next.js same-origin gateways -> ASP.NET Core API
+                                         -> Catalog / Cart / Order services
+                                         -> EF Core / PostgreSQL
+Demo scheduler -> Order service -> persisted payment / shipment transitions
 ```
 
 | Directory | Responsibility |
 | --- | --- |
-| `web` | Responsive storefront, sign-in and bag dialogs, same-origin gateways |
-| `src/Commerce.Domain` | Product and cart item models |
-| `src/Commerce.Application` | Catalog/cart contracts and input validation |
-| `src/Commerce.Infrastructure` | EF Core persistence, Identity users, migrations, catalog/cart services, demo seeds |
+| `web` | Responsive storefront, sign-in, bag, approval and order dialogs, same-origin gateways |
+| `src/Commerce.Domain` | Product, cart, order, approval and timeline models |
+| `src/Commerce.Application` | Catalog/cart/order contracts and input validation |
+| `src/Commerce.Infrastructure` | EF Core persistence, Identity users, migrations, application services, demo seeds |
 | `src/Commerce.Api` | Authenticated HTTP endpoints, CSRF validation, rate limiting, health checks |
-| `tests/Commerce.IntegrationTests` | Real PostgreSQL tests for identity, ownership, quantity/stock validation, concurrent mutations |
+| `tests/Commerce.IntegrationTests` | Real PostgreSQL tests for identity, ownership, approvals, stock concurrency and payment/order transitions |
 | `scripts` | Local startup and running-application verification |
 
-The API owns query validation. Prices use `numeric(12,2)` with an explicit currency. Database constraints reject negative prices and stock. Search escapes SQL `LIKE` metacharacters; paging has a stable tie-breaker. The gateway exposes only catalog reads and does not forward arbitrary upstream paths.
+The API owns query validation. Prices use `numeric(12,2)` with an explicit currency. Database constraints reject negative prices and stock, and refunds greater than captured funds. Search escapes SQL `LIKE` metacharacters; paging has a stable tie-breaker. The gateways allow only documented routes and methods and do not forward arbitrary upstream paths.
 
 Cart mutations share an application service that obtains prices from the database. A PostgreSQL row lock on the authenticated owner serializes concurrent mutations, including the first addition to an empty bag. The API obtains the owner from the authenticated principal, not client-supplied IDs. Cart reads recalculate prices and availability; unavailable quantities are flagged for correction.
+
+Order preparation saves a server-owned JSON snapshot and SHA-256 hash. A database trigger prevents rewriting its owner, terms, hash or expiry. Confirmation locks the owner and then product rows in a stable order, revalidates the snapshot, and commits the approval result, order, inventory, payment state and timeline in one transaction. The approval ID is the idempotency key. Order and payment states are separate. Persisted simulation deadlines survive restarts; background transitions use the same owner lock as cancellation and cannot revive cancelled payments. GET requests never approve or advance orders.
+
+The simulator records local payment state in the same database transaction. It is not a payment-provider integration. There is no message broker or event publisher in this version.
 
 ## Sessions and request protection
 
@@ -94,6 +111,15 @@ GET /api/cart
 POST /api/cart/items
 PUT /api/cart/items/{productId}
 DELETE /api/cart/items/{productId}
+GET /api/orders
+GET /api/orders/{id}
+GET /api/actions
+GET /api/actions/{id}
+POST /api/orders/prepare
+POST /api/orders/{id}/prepare-cancellation
+POST /api/orders/{id}/prepare-refund
+POST /api/actions/{id}/confirm
+POST /api/actions/{id}/reject
 ```
 
 Supported filters: `search`, `category`, `minPrice`, `maxPrice`, `inStock`. Sort values: `featured`, `price-asc`, `price-desc`, `name`. Page size is limited to 48. Invalid filters return HTTP 400; missing product IDs return HTTP 404. API and database failures produce an explicit storefront error instead of fabricated fallback products.
@@ -136,18 +162,20 @@ The web gateway defaults to `http://127.0.0.1:5080`; override it with the server
 Against the running Compose stack:
 
 ```powershell
-./scripts/verify.ps1
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\verify.ps1
 ```
 
 This checks health, seeded data, filtering, search escaping, sorting, paging, product details, input rejection, and the web gateway against real PostgreSQL data.
 
-For automated identity/cart integration tests, with PostgreSQL running:
+For automated identity, cart, approval and order integration tests, with PostgreSQL running:
 
 ```powershell
-./scripts/test.ps1
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\test.ps1
 ```
 
 The fixture creates a uniquely named test database, applies the real migrations, and removes only that test database afterward. It never resets the development catalog or bags. Tests cover unauthenticated access, secure cookie attributes, sign-out, CSRF rejection, ownership isolation, tampered prices, invalid quantities, stock bounds, and concurrent additions. A PostgreSQL account with permission to create a test database is required (the local Compose account has this permission).
+
+Order tests also cover immutable approval snapshots, expiry, superseded/rejected approvals, stale prices/stock/cart contents, duplicate confirmation, concurrent last-item purchases, failed and delayed payments, cancellation and late-capture prevention, delivery eligibility, and refund limits. A controlled test clock advances time without waiting for simulation timers.
 
 Build checks:
 
@@ -160,6 +188,7 @@ npm run build
 
 ## Troubleshooting
 
+- **PowerShell blocks scripts:** use the `powershell.exe -NoProfile -ExecutionPolicy Bypass -File ...` form shown above. It applies only to that process and does not change your machine policy.
 - **Docker cannot connect:** start Docker Desktop and select Linux containers.
 - **A service is unavailable:** inspect `docker compose ps` and `docker compose logs api web postgres`.
 - **A port is occupied:** stop the conflicting process or change the host port mapping in `compose.yaml` and the verification URL parameters.
