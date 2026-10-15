@@ -5,6 +5,8 @@ using Commerce.Infrastructure;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
+using OpenIddict.Abstractions;
+using OpenIddict.Validation.AspNetCore;
 
 namespace Commerce.Mcp;
 
@@ -21,12 +23,30 @@ public sealed class McpAuthenticationHandler(IOptionsMonitor<AuthenticationSchem
             return AuthenticateResult.Fail("Invalid MCP credential.");
 
         var ticket = tokens.Validate(header.Parameter);
-        if (ticket is null) return AuthenticateResult.Fail("Invalid or expired MCP credential.");
+        if (ticket is null)
+        {
+            var oauth = await Context.AuthenticateAsync(OpenIddictValidationAspNetCoreDefaults.AuthenticationScheme);
+            if (!oauth.Succeeded || oauth.Principal is null) return AuthenticateResult.Fail("Invalid or expired MCP credential.");
+            var principal = new ClaimsPrincipal(new ClaimsIdentity(new[]
+            {
+                new Claim(ClaimTypes.NameIdentifier, oauth.Principal.GetClaim(OpenIddictConstants.Claims.Subject) ?? ""),
+                new Claim("security_stamp", oauth.Principal.GetClaim("security_stamp") ?? "")
+            }, McpAccessTokens.Scheme));
+            ((ClaimsIdentity)principal.Identity!).AddClaims(oauth.Principal.GetScopes().Select(scope => new Claim("scope", scope)));
+            ticket = new AuthenticationTicket(principal, McpAccessTokens.Scheme);
+        }
         var id = ticket.Principal.FindFirstValue(ClaimTypes.NameIdentifier);
         var user = await db.Users.AsNoTracking().SingleOrDefaultAsync(u => u.Id == id, Context.RequestAborted);
         if (user is null || user.SecurityStamp != ticket.Principal.FindFirstValue("security_stamp") ||
             (user.LockoutEnabled && user.LockoutEnd > clock.GetUtcNow()))
             return AuthenticateResult.Fail("MCP credential is no longer valid.");
         return AuthenticateResult.Success(ticket);
+    }
+
+    protected override Task HandleChallengeAsync(AuthenticationProperties properties)
+    {
+        Response.StatusCode = StatusCodes.Status401Unauthorized;
+        Response.Headers.WWWAuthenticate = OAuthConfiguration.Challenge(Context.RequestServices.GetRequiredService<CommerceOAuth>());
+        return Task.CompletedTask;
     }
 }

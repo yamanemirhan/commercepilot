@@ -19,6 +19,7 @@ builder.Services.AddScoped<ICatalogService, CatalogService>();
 builder.Services.AddScoped<ICartService, CartService>();
 builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddSingleton<McpAccessTokens>();
+builder.AddCommerceOAuth();
 builder.Services.AddScoped<IOrderService, OrderService>();
 if (!builder.Environment.IsEnvironment("Testing")) builder.Services.AddHostedService<DemoOrderWorker>();
 builder.Services.AddIdentityCore<CommerceUser>(options =>
@@ -54,6 +55,11 @@ builder.Services.AddDataProtection().SetApplicationName("CommercePilot")
 builder.Services.AddRateLimiter(options =>
 {
     options.RejectionStatusCode = 429;
+    options.AddPolicy("oauth", context => RateLimitPartition.GetFixedWindowLimiter(
+        context.Connection.RemoteIpAddress?.ToString() ?? "unknown", _ => new FixedWindowRateLimiterOptions
+        {
+            PermitLimit = 60, Window = TimeSpan.FromMinutes(1), QueueLimit = 0
+        }));
     options.AddPolicy("login", context => RateLimitPartition.GetFixedWindowLimiter(
         context.Connection.RemoteIpAddress?.ToString() ?? "unknown", _ => new FixedWindowRateLimiterOptions
         {
@@ -70,6 +76,7 @@ builder.Services.AddHealthChecks().AddCheck<DatabaseHealthCheck>("postgres", tag
 var app = builder.Build();
 app.UseExceptionHandler();
 app.UseStatusCodePages();
+app.Use((context, next) => app.Services.GetRequiredService<OAuthRequestLimits>().InvokeAsync(context, next));
 app.UseAuthentication();
 app.UseAuthorization();
 app.UseRateLimiter();
@@ -108,6 +115,10 @@ catalog.MapGet("/categories", async (ICatalogService service, CancellationToken 
     Results.Ok(await service.CategoriesAsync(ct)));
 app.MapShoppingEndpoints();
 app.MapOrderEndpoints();
+app.MapCommerceOAuth();
+await using (var oauthScope = app.Services.CreateAsyncScope())
+    await oauthScope.ServiceProvider.GetRequiredService<CommerceOAuth>().RegisterClientsAsync(
+        oauthScope.ServiceProvider.GetRequiredService<OpenIddict.Abstractions.IOpenIddictApplicationManager>());
 app.Run();
 
 public partial class Program;

@@ -4,7 +4,7 @@ A considered storefront for everyday technology, built with Next.js, ASP.NET Cor
 
 Browse 32 fictional products across audio, workspace, everyday essentials, and gaming. Search, combine category and price filters, check availability, sort results, and inspect product details. Sign in with a local demo account to save a personal shopping bag, change quantities, or remove items. Catalog data, cart contents, and totals come from PostgreSQL through the .NET API.
 
-This version supports **catalog browsing, demo accounts, persistent shopping bags, explicit order approvals, simulated payments, delivery tracking, cancellations, refunds, and MCP catalog, bag reading and add-to-bag tools**. The AI assistant is not implemented yet. Products and specifications are fictional; there are no real payments.
+This version supports **catalog browsing, demo accounts, persistent shopping bags, explicit order approvals, simulated payments, delivery tracking, cancellations, refunds, and MCP tools for catalog, bags, order reads and checkout reviews**. The AI assistant is not implemented yet. Products and specifications are fictional; there are no real payments.
 
 ## Run locally
 
@@ -69,7 +69,7 @@ Browser -> Next.js same-origin gateways -> ASP.NET Core API
                                          -> Catalog / Cart / Order services
                                          -> EF Core / PostgreSQL
 Demo scheduler -> Order service -> persisted payment / shipment transitions
-MCP client -> ASP.NET Core MCP server -> Catalog / Cart services -> PostgreSQL
+MCP client -> ASP.NET Core MCP server -> Catalog / Cart / Order services -> PostgreSQL
 ```
 
 | Directory | Responsibility |
@@ -79,7 +79,7 @@ MCP client -> ASP.NET Core MCP server -> Catalog / Cart services -> PostgreSQL
 | `src/Commerce.Application` | Catalog/cart/order contracts and input validation |
 | `src/Commerce.Infrastructure` | EF Core persistence, Identity users, migrations, application services, demo seeds |
 | `src/Commerce.Api` | Authenticated HTTP endpoints, CSRF validation, rate limiting, health checks |
-| `src/Commerce.Mcp` | Streamable HTTP MCP endpoint with public catalog tools and scoped personal bag access |
+| `src/Commerce.Mcp` | Streamable HTTP MCP endpoint with public catalog tools, scoped bag access, order reads and checkout reviews |
 | `tools/Commerce.McpProbe` | Console MCP client for discovery, catalog calls and optional local shopper login |
 | `tests/Commerce.IntegrationTests` | Real PostgreSQL tests for identity, ownership, approvals, stock concurrency and payment/order transitions |
 | `scripts` | Local startup and running-application verification |
@@ -94,7 +94,7 @@ The simulator records local payment state in the same database transaction. It i
 
 ## Sessions and request protection
 
-ASP.NET Core Identity hashes passwords and issues an HttpOnly, SameSite=Strict session cookie with an eight-hour sliding expiration. Cookies require HTTPS outside Development; loopback HTTP is used for the local Compose demo. Every mutation, including sign-in and sign-out, requires an identity-bound antiforgery token. The web gateway additionally checks the browser Origin against `APP_ORIGIN` (default `http://localhost:3000`), limits forwarded routes/methods, and does not automatically retry mutations.
+ASP.NET Core Identity hashes passwords and issues an HttpOnly, SameSite=Strict session cookie with an eight-hour sliding expiration. Cookies require HTTPS outside Development; loopback HTTP is used for the local Compose demo. Every cookie-based HTTP API mutation, including sign-in, sign-out and MCP credential issuance, requires an identity-bound antiforgery token. MCP calls use a separate bearer credential with tool-specific scope checks. The web gateway additionally checks the browser Origin against `APP_ORIGIN` (default `http://localhost:3000`), limits forwarded routes/methods, and does not automatically retry mutations.
 
 The login endpoint permits 20 attempts per minute per upstream IP, and Identity locks an account for five minutes after five failed password checks. The local gateway shares an upstream IP. A production deployment needs trusted proxy configuration and a suitable distributed rate-limit policy.
 
@@ -112,6 +112,11 @@ POST /api/auth/login
 POST /api/auth/logout
 POST /api/auth/mcp-token
 POST /api/auth/mcp-cart-token
+POST /api/auth/mcp-orders-token
+POST /api/auth/mcp-checkout-token
+POST /api/auth/mcp-actions-token
+POST /api/auth/mcp-cancellation-token
+POST /api/auth/mcp-refund-token
 GET /api/cart
 POST /api/cart/items
 PUT /api/cart/items/{productId}
@@ -172,9 +177,101 @@ The `--add` command explicitly obtains a five-minute `cart:read cart:write` cred
 
 Adding is not idempotent: repeating a successful call adds the quantity again. The console never automatically retries this mutation. If the connection fails after sending it, inspect the bag with `--cart` before deciding whether another addition is needed. Tool errors report invalid quantity, unavailable stock or missing products without fabricating a successful result.
 
-This is a **local first-party credential flow, not OAuth discovery or third-party MCP sign-in**. The API and MCP host share the existing Data Protection key ring, using a separate versioned MCP purpose and an explicit audience/issuer. Both hosts are in the same trust boundary. Sign-out ends the API session but does not revoke an issued credential; it expires after five minutes, with no refresh token. External MCP clients and hosted deployments need a standards-based authorization deployment and HTTPS.
+To set an existing line to an exact total quantity or remove it entirely:
 
-The endpoint binds to loopback, restricts allowed hosts and rejects browser-origin requests; use a native MCP client. No order or approval tools are exposed. Tool annotations describe behavior to clients; server code and authorization enforce access. Stateless transport does not provide conversation history. The API initializes the database; the MCP service uses the existing application services. If readiness fails during initial startup, wait for API readiness and retry. Stop the optional service with `docker compose --profile mcp stop mcp`.
+```powershell
+dotnet run --project tools/Commerce.McpProbe -- --set alex 10000000-0000-0000-0000-000000000001 2
+dotnet run --project tools/Commerce.McpProbe -- --remove alex 10000000-0000-0000-0000-000000000001
+```
+
+Both commands obtain the same explicit `cart:write` grant and read the persisted bag after the change. `update_cart_item` replaces the quantity instead of adding to it; the item must already be in that shopper's bag, and the requested total must be 1–99 and within current stock. Zero is rejected; use `remove_from_cart` for removal. Removal deletes only that shopper's line, including unavailable items, and succeeds unchanged if the item is already absent. Neither operation changes inventory, orders or payments.
+
+With no intervening edits, setting the same quantity twice or removing the same line twice has the same final bag state. The console still never retries writes automatically: a retry could overwrite an intervening shopper edit. Inspect the bag after an uncertain result.
+
+To inspect your orders without changing them:
+
+```powershell
+dotnet run --project tools/Commerce.McpProbe -- --orders sam
+# Replace the placeholder with an actual id returned above, not its CP- display number.
+dotnet run --project tools/Commerce.McpProbe -- --order sam <order-id>
+```
+
+These commands obtain a separate five-minute `orders:read` credential through the session/CSRF-protected `/api/auth/mcp-orders-token` endpoint. `get_my_orders` returns a structured `orders` list of summaries for the account's most recent 100 orders, newest first, and a `limit` of 100. An empty list is a successful result. `get_order_status` returns one owned order's recorded order/payment states, items, timeline and cancellation/refund eligibility. Eligibility does not approve or execute an action. Reads do not advance scheduled transitions; the existing API worker handles simulation independently.
+
+To prepare a checkout review from your current bag:
+
+```powershell
+dotnet run --project tools/Commerce.McpProbe -- --prepare sam success
+# Replace the placeholder with the review's id, not an order id.
+dotnet run --project tools/Commerce.McpProbe -- --action sam <action-id>
+```
+
+`--prepare` obtains `orders:prepare actions:read` through `/api/auth/mcp-checkout-token` and calls `prepare_order`. Choose `success`, `failure` or `delay` for the local simulated payment outcome after approval. The server reads the authenticated shopper's bag and current prices, validates stock and stores an immutable five-minute review. It does not reserve inventory, clear the bag, create an order or run a payment. A new preparation supersedes the shopper's previous pending checkout review; preparation is not idempotent and the client never retries it automatically. After an uncertain response, inspect pending reviews in the storefront before preparing again.
+
+Open `http://localhost:3000`, sign in as the same account and open **Orders → Waiting for your review → New order**. Review the items, total, destination and simulated payment outcome, then explicitly approve or reject. Confirmation revalidates the saved terms. Merely opening or reading a review cannot approve it. The returned `snapshotHash` identifies those terms; it grants no authority to confirm. Confirmation/rejection remain authenticated, CSRF-protected HTTP operations used by the storefront and are not MCP tools.
+
+`--action` obtains only `actions:read` through `/api/auth/mcp-actions-token`. `get_pending_action_status` returns the owned review, including its terms, expiry, status and resulting order ID when completed. It can read completed, rejected, superseded or expired reviews as well as pending ones. A foreign or nonexistent ID returns the same `ActionNotFound` error. `Completed` means the review executed; inspect the resulting order for the actual payment outcome. Both new credential endpoints require a session and CSRF and share the existing issuance limit.
+
+To prepare a cancellation or full-refund review, use a real order UUID:
+
+```powershell
+dotnet run --project tools/Commerce.McpProbe -- --prepare-cancellation sam <order-id>
+dotnet run --project tools/Commerce.McpProbe -- --prepare-refund sam <order-id>
+```
+
+`prepare_cancellation` accepts an owned order before dispatch; `prepare_refund` accepts a delivered order with captured payment within 30 days of delivery. Neither executes the change. They reuse the same five-minute immutable review boundary, supersede an earlier pending review of the same operation/order and never automatically retry. Ownership and eligibility are checked by the application service, and checked again at human confirmation. Partial refunds and physical returns are unsupported. Use `--action` with the returned review ID to inspect the decision. A foreign or missing order receives the same `OrderNotFound` error.
+
+There are twelve tools in total. Discovery is filtered by credential:
+
+| Credential | Available tools |
+| --- | --- |
+| None | `search_products`, `get_product` |
+| `cart:read` | Public tools plus `get_cart` |
+| `cart:read cart:write` | Public tools plus all four bag tools |
+| `orders:read` | Public tools plus `get_my_orders`, `get_order_status` |
+| `orders:prepare actions:read` | Public tools plus `prepare_order`, `get_pending_action_status` |
+| `actions:read` | Public tools plus `get_pending_action_status` |
+| `orders:read orders:cancel:prepare actions:read` | Public tools, order reads, `prepare_cancellation`, review status |
+| `orders:read orders:refund:prepare actions:read` | Public tools, order reads, `prepare_refund`, review status |
+
+Cart credentials do not grant order access, and order credentials do not grant cart access. Order ownership comes from the authenticated principal. A foreign order ID and a missing order ID produce the same `OrderNotFound` tool error. The caller cannot select another owner by adding a `userId` argument. All credential endpoints share the per-user issuance limit and accept only server-defined grants.
+
+The password-prompt commands above remain a **local first-party credential flow**. The API and MCP host share the existing Data Protection key ring, using a separate versioned MCP purpose and an explicit audience/issuer. Both hosts are in the same trust boundary. Sign-out ends the API session but does not revoke an issued credential; it expires after five minutes, with no refresh token. Browser-based OAuth is available separately below.
+
+The endpoint binds to loopback, restricts allowed hosts and rejects browser-origin requests; use a native MCP client. Preparation changes review records only. No tool confirms, rejects, cancels or refunds an order. Tool annotations describe behavior to clients; server code and authorization enforce access. Stateless transport does not provide conversation history. The API initializes the database; the MCP service uses the existing application services. If readiness fails during initial startup, wait for API readiness and retry. Stop the optional service with `docker compose --profile mcp stop mcp`.
+
+### OAuth for native MCP clients
+
+The authenticated endpoint is `http://127.0.0.1:5081/mcp/authorized`. The original `/mcp` endpoint keeps anonymous catalog discovery and the local credential flow. Both endpoints expose the same registered tools; authorization filters determine which tools a credential may discover or invoke.
+
+```powershell
+dotnet run --project tools/Commerce.McpProbe -- --oauth --orders
+dotnet run --project tools/Commerce.McpProbe -- --oauth --cart
+dotnet run --project tools/Commerce.McpProbe -- --oauth --prepare-cancellation <order-id>
+```
+
+With `--oauth`, omit the account name: choose the shopper in the browser. The console starts a temporary loopback callback on port **5083**, opens CommercePilot sign-in and requests only the command's scopes. Review and allow or deny the connection. The client's official MCP SDK discovers the authorization server, generates S256 PKCE/state, validates the callback state/issuer and exchanges the one-use code. The password is entered only on the authorization server. OAuth permission to connect does not approve a purchase, cancellation or refund. The CLI keeps tokens in memory and closes the callback listener after authorization; it does not persist credentials or refresh tokens.
+
+The API hosts OpenIddict 7.7.2 authorization code flow with persisted PostgreSQL client/code/token records. Codes last two minutes; access tokens last five. Resource indicators are required on both authorization and exchange requests. MCP validates the exact audience, issuer, expiry, token status and current account/security stamp. Bearer credentials are not accepted as browser confirmation authority. `POST /connect/revoke` supports access-token revocation for the issuing client. Scope escalation requires a fresh consent flow. Signed, expiring consent tickets bind the displayed permissions/request to the shopper, and consent/login POSTs require CSRF protection.
+
+| Purpose | Local URL |
+| --- | --- |
+| Protected MCP resource | `http://127.0.0.1:5081/mcp/authorized` |
+| Resource metadata | `http://127.0.0.1:5081/.well-known/oauth-protected-resource/mcp/authorized` |
+| Issuer / account permission pages | `http://127.0.0.1:5080/` |
+| Authorization-server metadata | `http://127.0.0.1:5080/.well-known/oauth-authorization-server` |
+| Authorization / exchange / revocation | `/connect/authorize`, `/connect/token`, `/connect/revoke` on the issuer |
+
+Two public clients are pre-registered; they have no client secret:
+
+| Client ID | Exact registered callback URIs |
+| --- | --- |
+| `commercepilot-probe` | `http://127.0.0.1:5083/callback/` |
+| `commercepilot-inspector` | `http://localhost:6274/oauth/callback`, `http://localhost:6274/oauth/callback/debug` |
+
+In MCP Inspector, select Streamable HTTP, enter the authenticated resource URL, and set OAuth client ID `commercepilot-inspector` without a secret. Other native clients must support pre-registered public clients, S256 PKCE and resource indicators. Operators can configure exact IDs/names/redirects through API `OAuth:Clients` entries (`ClientId`, `DisplayName`, `RedirectUris`); there is no anonymous dynamic registration or client-metadata URL fetching. Never use wildcard redirects. Existing database registrations are retained when omitted from configuration; remove unwanted registrations and revoke their tokens as an explicit administrative operation.
+
+Local Compose uses HTTP only on loopback for development. A hosted deployment requires HTTPS, explicitly configured `OAuth:Issuer` and `OAuth:Resource` on both hosts, correct proxy/host settings, protected database/key storage and registered HTTPS callbacks (native loopback callbacks are permitted). Production does not disable OpenIddict's HTTPS requirement. Access tokens and codes use the shared persisted Data Protection ring; the bootstrap JWT keys are not used for these opaque tokens, and no identity tokens are issued. These are OAuth credentials, not an OpenID Connect user-profile integration.
 
 ### Local source development
 
@@ -232,6 +329,14 @@ Order tests also cover immutable approval snapshots, expiry, superseded/rejected
 MCP tests use the real SDK client and HTTP transport against the test host and PostgreSQL. They cover tool discovery, filtered results, unchanged stock, invalid input, unavailable confirmation tools, rejected browser origins/hosts, protected credential issuance, expiry/tampering/audience/issuer checks, deleted/locked accounts, changed security stamps, missing scopes and per-user bag isolation even when an owner argument is forged.
 
 Cart-write tests additionally check read/write separation, protected write grants, server-owned prices and user identity, additive quantities, persistence through MCP and HTTP, stock/quantity rejection, missing products, and absence of order or inventory-reservation side effects.
+
+Cart-edit tests cover exact quantity replacement, repeated updates/removals, rejected anonymous/read-only calls, forged owners/prices, invalid totals, missing bag lines, stock revalidation and removal of unavailable items while preserving the other shopper's bag and inventory/order state.
+
+Order-tool tests check protected issuance, separate scopes, empty histories, owner-filtered lists/details, identical foreign/missing-order errors, and unchanged orders, payments, timeline entries, inventory, carts and approvals even when a simulated payment deadline has passed.
+
+Approval-tool tests cover explicit preparation/read scopes, protected grants, server-owned terms, unavailable stock, empty bags, superseded reviews, owner isolation and status reads after expiry or human decisions. They verify that preparation has no inventory/order/payment effects and that an MCP bearer credential cannot confirm a review through the HTTP API.
+
+Cancellation/refund tool tests cover separate scopes, protected issuance, eligible/invalid states, immutable superseded reviews, forged owner/amount arguments and unchanged order/payment/inventory state. OAuth tests cover discovery, PKCE enforcement, consent/CSRF, exact redirects, one-use code exchange, resource/client binding, limited scopes, revocation, expiry, account changes and denied bearer-only confirmation.
 
 Build checks:
 

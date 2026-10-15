@@ -19,10 +19,12 @@ public sealed class McpProgram
                 ?? throw new InvalidOperationException("ConnectionStrings__Commerce is required.")));
         builder.Services.AddScoped<ICatalogService, CatalogService>();
         builder.Services.AddScoped<ICartService, CartService>();
+        builder.Services.AddScoped<IOrderService, OrderService>();
         builder.Services.AddSingleton(TimeProvider.System);
         builder.Services.AddDataProtection().SetApplicationName("CommercePilot")
             .PersistKeysToDbContext<CommerceDbContext>();
         builder.Services.AddSingleton<McpAccessTokens>();
+        builder.AddCommerceOAuthValidation();
         builder.Services.AddAuthentication(McpAccessTokens.Scheme)
             .AddScheme<AuthenticationSchemeOptions, McpAuthenticationHandler>(McpAccessTokens.Scheme, _ => { });
         builder.Services.AddAuthorization(options =>
@@ -31,13 +33,25 @@ public sealed class McpProgram
                 policy => policy.RequireAuthenticatedUser().RequireClaim("scope", McpAccessTokens.CartRead));
             options.AddPolicy(McpAccessTokens.CartWrite,
                 policy => policy.RequireAuthenticatedUser().RequireClaim("scope", McpAccessTokens.CartWrite));
+            options.AddPolicy(McpAccessTokens.OrdersRead,
+                policy => policy.RequireAuthenticatedUser().RequireClaim("scope", McpAccessTokens.OrdersRead));
+            options.AddPolicy(McpAccessTokens.OrdersPrepare,
+                policy => policy.RequireAuthenticatedUser().RequireClaim("scope", McpAccessTokens.OrdersPrepare));
+            options.AddPolicy(McpAccessTokens.ActionsRead,
+                policy => policy.RequireAuthenticatedUser().RequireClaim("scope", McpAccessTokens.ActionsRead));
+            options.AddPolicy(McpAccessTokens.OrdersCancelPrepare,
+                policy => policy.RequireAuthenticatedUser().RequireClaim("scope", McpAccessTokens.OrdersCancelPrepare));
+            options.AddPolicy(McpAccessTokens.OrdersRefundPrepare,
+                policy => policy.RequireAuthenticatedUser().RequireClaim("scope", McpAccessTokens.OrdersRefundPrepare));
         });
 
         builder.Services.AddMcpServer()
             .WithHttpTransport(options => options.SessionMode = HttpServerSessionMode.Stateless)
             .AddAuthorizationFilters()
             .WithTools<CatalogTools>()
-            .WithTools<CartTools>();
+            .WithTools<CartTools>()
+            .WithTools<OrderTools>()
+            .WithTools<ApprovalTools>();
 
         var app = builder.Build();
         app.UseExceptionHandler();
@@ -60,7 +74,7 @@ public sealed class McpProgram
             if (context.Request.Headers.ContainsKey("Authorization") && context.User.Identity?.IsAuthenticated != true)
             {
                 context.Response.StatusCode = StatusCodes.Status401Unauthorized;
-                context.Response.Headers.WWWAuthenticate = "Bearer";
+                context.Response.Headers.WWWAuthenticate = OAuthConfiguration.Challenge(context.RequestServices.GetRequiredService<CommerceOAuth>());
                 return;
             }
             await next();
@@ -73,6 +87,8 @@ public sealed class McpProgram
             return Results.Ok(new { status = "ready" });
         });
         app.MapMcp("/mcp");
+        app.MapMcp("/mcp/authorized").RequireAuthorization();
+        app.MapCommerceOAuthMetadata();
         app.Run();
     }
 }

@@ -95,7 +95,7 @@ public sealed class McpCartTests(CommerceFixture fixture) : IClassFixture<Commer
             await using var transport = Transport(http, token);
             await using var client = await McpClient.CreateAsync(transport);
             var listed = await client.ListToolsAsync();
-            Assert.Equal(4, listed.Count);
+            Assert.Equal(6, listed.Count);
             var tool = Assert.Single(listed, t => t.Name == "add_to_cart");
             Assert.Equal(new[] { "productId", "quantity" }, tool.JsonSchema.GetProperty("properties").EnumerateObject().Select(p => p.Name).Order().ToArray());
             var detail = Result<ProductDto>(await client.CallToolAsync("get_product", new Dictionary<string, object?> { ["productId"] = product.Id }));

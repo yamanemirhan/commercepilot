@@ -17,6 +17,7 @@ public sealed class CommerceDbContext(DbContextOptions<CommerceDbContext> option
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);
+        modelBuilder.UseOpenIddict();
         var action = modelBuilder.Entity<PendingAction>();
         action.HasKey(a => a.Id);
         action.HasOne<CommerceUser>().WithMany().HasForeignKey(a => a.UserId).OnDelete(DeleteBehavior.Restrict);

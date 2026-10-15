@@ -12,22 +12,38 @@ public sealed class McpAccessTokens(IDataProtectionProvider protection, TimeProv
     public const string Issuer = "commercepilot:api";
     public const string CartRead = "cart:read";
     public const string CartWrite = "cart:write";
+    public const string OrdersRead = "orders:read";
+    public const string OrdersPrepare = "orders:prepare";
+    public const string ActionsRead = "actions:read";
+    public const string OrdersCancelPrepare = "orders:cancel:prepare";
+    public const string OrdersRefundPrepare = "orders:refund:prepare";
     private readonly TicketDataFormat format = new(protection.CreateProtector("CommercePilot.McpAccessToken", "v1", Audience));
 
-    public McpAccessToken Issue(CommerceUser user, bool allowCartWrite = false)
+    public McpAccessToken Issue(CommerceUser user, McpAccessGrant grant = McpAccessGrant.CartRead)
     {
         var now = clock.GetUtcNow();
         var expires = now.AddMinutes(5);
+        string[] scopes = grant switch
+        {
+            McpAccessGrant.CartRead => [CartRead],
+            McpAccessGrant.CartWrite => [CartRead, CartWrite],
+            McpAccessGrant.OrdersRead => [OrdersRead],
+            McpAccessGrant.CheckoutPrepare => [OrdersPrepare, ActionsRead],
+            McpAccessGrant.ActionsRead => [ActionsRead],
+            McpAccessGrant.CancellationPrepare => [OrdersRead, OrdersCancelPrepare, ActionsRead],
+            McpAccessGrant.RefundPrepare => [OrdersRead, OrdersRefundPrepare, ActionsRead],
+            _ => throw new ArgumentOutOfRangeException(nameof(grant))
+        };
         var principal = new ClaimsPrincipal(new ClaimsIdentity(new[]
         {
             new Claim(ClaimTypes.NameIdentifier, user.Id),
             new Claim("security_stamp", user.SecurityStamp ?? throw new InvalidOperationException("Missing security stamp.")),
-            new Claim("aud", Audience), new Claim("iss", Issuer), new Claim("scope", CartRead)
+            new Claim("aud", Audience), new Claim("iss", Issuer)
         }, Scheme));
-        if (allowCartWrite) ((ClaimsIdentity)principal.Identity!).AddClaim(new Claim("scope", CartWrite));
+        ((ClaimsIdentity)principal.Identity!).AddClaims(scopes.Select(scope => new Claim("scope", scope)));
         var ticket = new AuthenticationTicket(principal,
             new AuthenticationProperties { IssuedUtc = now, ExpiresUtc = expires }, Scheme);
-        return new(format.Protect(ticket), expires, allowCartWrite ? $"{CartRead} {CartWrite}" : CartRead);
+        return new(format.Protect(ticket), expires, string.Join(' ', scopes));
     }
 
     public AuthenticationTicket? Validate(string token)
@@ -45,3 +61,4 @@ public sealed class McpAccessTokens(IDataProtectionProvider protection, TimeProv
 }
 
 public sealed record McpAccessToken(string AccessToken, DateTimeOffset ExpiresAt, string Scope);
+public enum McpAccessGrant { CartRead, CartWrite, OrdersRead, CheckoutPrepare, ActionsRead, CancellationPrepare, RefundPrepare }

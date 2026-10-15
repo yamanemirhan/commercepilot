@@ -52,7 +52,42 @@ public static class ShoppingEndpoints
         {
             var user = await users.GetUserAsync(context.User);
             if (user is null || await users.IsLockedOutAsync(user)) return Results.Unauthorized();
-            return Results.Ok(tokens.Issue(user, allowCartWrite: true));
+            return Results.Ok(tokens.Issue(user, McpAccessGrant.CartWrite));
+        }).RequireAuthorization().AddEndpointFilter<CsrfFilter>().RequireRateLimiting("mcp-token");
+
+        auth.MapPost("/mcp-orders-token", async (HttpContext context, UserManager<CommerceUser> users, McpAccessTokens tokens) =>
+        {
+            var user = await users.GetUserAsync(context.User);
+            if (user is null || await users.IsLockedOutAsync(user)) return Results.Unauthorized();
+            return Results.Ok(tokens.Issue(user, McpAccessGrant.OrdersRead));
+        }).RequireAuthorization().AddEndpointFilter<CsrfFilter>().RequireRateLimiting("mcp-token");
+
+        // Preparation grants no permission to confirm or reject a review.
+        auth.MapPost("/mcp-checkout-token", async (HttpContext context, UserManager<CommerceUser> users, McpAccessTokens tokens) =>
+        {
+            var user = await users.GetUserAsync(context.User);
+            if (user is null || await users.IsLockedOutAsync(user)) return Results.Unauthorized();
+            return Results.Ok(tokens.Issue(user, McpAccessGrant.CheckoutPrepare));
+        }).RequireAuthorization().AddEndpointFilter<CsrfFilter>().RequireRateLimiting("mcp-token");
+
+        auth.MapPost("/mcp-actions-token", async (HttpContext context, UserManager<CommerceUser> users, McpAccessTokens tokens) =>
+        {
+            var user = await users.GetUserAsync(context.User);
+            if (user is null || await users.IsLockedOutAsync(user)) return Results.Unauthorized();
+            return Results.Ok(tokens.Issue(user, McpAccessGrant.ActionsRead));
+        }).RequireAuthorization().AddEndpointFilter<CsrfFilter>().RequireRateLimiting("mcp-token");
+
+        auth.MapPost("/mcp-cancellation-token", async (HttpContext context, UserManager<CommerceUser> users, McpAccessTokens tokens) =>
+        {
+            var user = await users.GetUserAsync(context.User);
+            if (user is null || await users.IsLockedOutAsync(user)) return Results.Unauthorized();
+            return Results.Ok(tokens.Issue(user, McpAccessGrant.CancellationPrepare));
+        }).RequireAuthorization().AddEndpointFilter<CsrfFilter>().RequireRateLimiting("mcp-token");
+        auth.MapPost("/mcp-refund-token", async (HttpContext context, UserManager<CommerceUser> users, McpAccessTokens tokens) =>
+        {
+            var user = await users.GetUserAsync(context.User);
+            if (user is null || await users.IsLockedOutAsync(user)) return Results.Unauthorized();
+            return Results.Ok(tokens.Issue(user, McpAccessGrant.RefundPrepare));
         }).RequireAuthorization().AddEndpointFilter<CsrfFilter>().RequireRateLimiting("mcp-token");
 
         var cart = app.MapGroup("/api/cart").WithTags("Cart").RequireAuthorization();

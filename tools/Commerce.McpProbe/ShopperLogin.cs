@@ -4,13 +4,13 @@ using System.Text;
 
 internal static class ShopperLogin
 {
-    public static async Task<string> GetTokenAsync(string account, CancellationToken ct, bool allowCartWrite = false)
+    public static async Task<string> GetTokenAsync(string account, CancellationToken ct, ShopperAccess access = ShopperAccess.CartRead)
     {
         var email = account.ToLowerInvariant() switch
         {
             "alex" => "alex@commercepilot.local",
             "sam" => "sam@commercepilot.local",
-            _ => throw new ArgumentException("Choose alex or sam for the local cart demo.")
+            _ => throw new ArgumentException("Choose alex or sam for the local demo.")
         };
         Console.Write($"Password for {email} (hidden): ");
         var password = ReadPassword();
@@ -20,7 +20,18 @@ internal static class ShopperLogin
         password = "";
         try
         {
-            using var response = await PostAsync(api, allowCartWrite ? "/api/auth/mcp-cart-token" : "/api/auth/mcp-token", null, ct);
+            var tokenPath = access switch
+            {
+                ShopperAccess.CartRead => "/api/auth/mcp-token",
+                ShopperAccess.CartWrite => "/api/auth/mcp-cart-token",
+                ShopperAccess.OrdersRead => "/api/auth/mcp-orders-token",
+                ShopperAccess.CheckoutPrepare => "/api/auth/mcp-checkout-token",
+                ShopperAccess.ActionsRead => "/api/auth/mcp-actions-token",
+                ShopperAccess.CancellationPrepare => "/api/auth/mcp-cancellation-token",
+                ShopperAccess.RefundPrepare => "/api/auth/mcp-refund-token",
+                _ => throw new ArgumentOutOfRangeException(nameof(access))
+            };
+            using var response = await PostAsync(api, tokenPath, null, ct);
             var token = await response.Content.ReadFromJsonAsync<TokenResponse>(ct)
                 ?? throw new InvalidOperationException("The API did not issue an MCP credential.");
             Console.WriteLine($"Signed in as {email}. Scope: {token.Scope}. Expires: {token.ExpiresAt:O}");
@@ -67,3 +78,5 @@ internal static class ShopperLogin
     private sealed record CsrfResponse(string Token);
     private sealed record TokenResponse(string AccessToken, DateTimeOffset ExpiresAt, string Scope);
 }
+
+internal enum ShopperAccess { CartRead, CartWrite, OrdersRead, CheckoutPrepare, ActionsRead, CancellationPrepare, RefundPrepare }
