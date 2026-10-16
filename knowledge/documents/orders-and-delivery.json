@@ -1,0 +1,8 @@
+{
+  "id": "orders-and-delivery",
+  "title": "Order pages and delivery updates",
+  "body": "Click My orders in the header to open /orders. Sign in first. This dedicated page lists the current shopper's most recent 100 orders, with product thumbnails, order number, date, status and total. Click an order card to open its individual detail page. Only the signed-in shopper's orders are accessible.\n\nAn order detail shows purchased items, quantities, prices, payment status, captured and refunded amounts, the fictional delivery destination and an event timeline. Pages refresh every 15 seconds while visible and also provide a Refresh button. All orders returns to the list; Back to the collection returns to the storefront.\n\nChat can also list the shopper's orders and read a specific order's status from the store. This public guide contains no personal order records. Cancellation and refund entry points on the detail page open a chat draft. The shopper sends it, sees an exact review card, and approves or rejects inside chat. The order page does not approve changes itself. Delivery and payment are simulated; no money is charged and no parcel is shipped.",
+  "keywords": ["orders", "order detail", "tracking", "delivery", "payment", "sipariş", "siparişlerim", "kargo", "where orders"],
+  "links": [{"label":"Open your orders","path":"/orders"}],
+  "reviewedAt": "2026-10-16T12:00:00Z"
+}

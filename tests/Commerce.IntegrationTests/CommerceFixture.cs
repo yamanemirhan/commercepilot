@@ -88,8 +88,18 @@ public sealed class CommerceFactory(string connection) : WebApplicationFactory<P
         builder.UseEnvironment("Testing");
         builder.UseSetting("ConnectionStrings:Commerce", connection);
         builder.UseSetting("Logging:LogLevel:Default", "Warning");
-        builder.ConfigureServices(services => services.AddSingleton<TimeProvider>(Clock));
+        builder.ConfigureServices(services =>
+        {
+            services.AddSingleton<TimeProvider>(Clock);
+            services.AddSingleton<Commerce.Knowledge.IKnowledgeRetriever, EmptyKnowledge>();
+        });
     }
+}
+
+public sealed class EmptyKnowledge : Commerce.Knowledge.IKnowledgeRetriever
+{
+    public Task<Commerce.Knowledge.KnowledgeResult> SearchAsync(string query, CancellationToken ct) =>
+        Task.FromResult(new Commerce.Knowledge.KnowledgeResult("unavailable", null, []));
 }
 
 public sealed class TestClock : TimeProvider

@@ -28,13 +28,26 @@ async function forward(
     `^(orders/${guid}/prepare-(cancellation|refund)|actions/${guid}/(confirm|reject))$`,
     "i",
   ).test(route);
+  const chatRoot = route === "chat/conversations";
+  const chatRead = new RegExp(`^chat/conversations/${guid}$`, "i").test(route);
+  const chatWrite = new RegExp(
+    `^chat/conversations/${guid}/(messages|reviews|cards/${guid}/decision)$`,
+    "i",
+  ).test(route);
+  const streaming = chatWrite && route.endsWith("/messages");
   const allowed = itemRoute
     ? ["PUT", "DELETE"]
     : orderRead
       ? ["GET"]
       : orderWrite
         ? ["POST"]
-        : methods[route];
+        : chatRoot
+          ? ["GET", "POST"]
+          : chatRead
+            ? ["GET", "DELETE"]
+            : chatWrite
+              ? ["POST"]
+              : methods[route];
   if (!allowed)
     return NextResponse.json({ detail: "Not found." }, { status: 404 });
   if (!allowed.includes(request.method))
@@ -96,10 +109,18 @@ async function forward(
       body,
       cache: "no-store",
       redirect: "manual",
-      signal: AbortSignal.timeout(10000),
+      signal: AbortSignal.any([
+        request.signal,
+        AbortSignal.timeout(streaming ? 200000 : 15000),
+      ]),
     });
     const result = new NextResponse(
-      upstream.status === 204 ? null : await upstream.text(),
+      upstream.status === 204
+        ? null
+        : streaming &&
+            upstream.headers.get("Content-Type")?.includes("text/event-stream")
+          ? upstream.body
+          : await upstream.text(),
       {
         status: upstream.status,
         headers: {

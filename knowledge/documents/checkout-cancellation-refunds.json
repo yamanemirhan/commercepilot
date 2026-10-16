@@ -1,0 +1,8 @@
+{
+  "id": "checkout-cancellation-refunds",
+  "title": "Checkout, cancellation and refund reviews",
+  "body": "Checkout, cancellation and refund requests require a human review. The assistant prepares an immutable summary and displays Approve and Reject buttons inside the chat conversation. Natural-language 'yes' is not authorization to execute a review. Reviews expire after five minutes; expired or stale reviews must be prepared again. Pending reviews in chat can retrieve reviews prepared elsewhere.\n\nCheckout shows exact items, quantities, total and a fictional delivery destination. Approving creates a demo order subject to fresh validation of the cart, stock and snapshot. Cancellation and refund eligibility is determined by live order state; ask the order tools or use the order detail page. Refunds are full demo refunds, not partial refunds or real bank transfers.\n\nThe dedicated order detail page provides entry points for eligible changes but all final approval and rejection remains inside chat. A tool can prepare a review, but there is no assistant tool that confirms it. Never claim an order was placed, cancelled or refunded without an authoritative result. This demo does not publish real shipping guarantees, return windows, tax advice or payment-provider policies.",
+  "keywords": ["checkout", "approval", "reject", "cancel", "refund", "return", "onay", "iptal", "iade", "payment"],
+  "links": [{"label":"Your orders","path":"/orders"}],
+  "reviewedAt": "2026-10-16T12:00:00Z"
+}

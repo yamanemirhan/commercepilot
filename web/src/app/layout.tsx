@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import "./globals.css";
+import { ShoppingProvider } from "@/components/shopping";
 
 export const metadata: Metadata = {
   title: "CommercePilot — Good things for your everyday",
@@ -12,7 +13,9 @@ export default function RootLayout({
 }: Readonly<{ children: React.ReactNode }>) {
   return (
     <html lang="en">
-      <body>{children}</body>
+      <body>
+        <ShoppingProvider>{children}</ShoppingProvider>
+      </body>
     </html>
   );
 }

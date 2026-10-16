@@ -19,6 +19,7 @@ builder.Services.AddScoped<ICatalogService, CatalogService>();
 builder.Services.AddScoped<ICartService, CartService>();
 builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddSingleton<McpAccessTokens>();
+builder.AddChat();
 builder.AddCommerceOAuth();
 builder.Services.AddScoped<IOrderService, OrderService>();
 if (!builder.Environment.IsEnvironment("Testing")) builder.Services.AddHostedService<DemoOrderWorker>();
@@ -55,6 +56,9 @@ builder.Services.AddDataProtection().SetApplicationName("CommercePilot")
 builder.Services.AddRateLimiter(options =>
 {
     options.RejectionStatusCode = 429;
+    options.AddPolicy("chat", context => RateLimitPartition.GetFixedWindowLimiter(
+        context.User.FindFirstValue(ClaimTypes.NameIdentifier) ?? "anonymous", _ => new FixedWindowRateLimiterOptions
+        { PermitLimit = 20, Window = TimeSpan.FromMinutes(1), QueueLimit = 0 }));
     options.AddPolicy("oauth", context => RateLimitPartition.GetFixedWindowLimiter(
         context.Connection.RemoteIpAddress?.ToString() ?? "unknown", _ => new FixedWindowRateLimiterOptions
         {
@@ -82,8 +86,15 @@ app.UseAuthorization();
 app.UseRateLimiter();
 app.Use(async (context, next) =>
 {
+    if (context.Request.Path.StartsWithSegments("/api/chat"))
+    {
+        if (context.Request.ContentLength > 16_384) { context.Response.StatusCode = 413; return; }
+        var limit = context.Features.Get<Microsoft.AspNetCore.Http.Features.IHttpMaxRequestBodySizeFeature>();
+        if (limit is { IsReadOnly: false }) limit.MaxRequestBodySize = 16_384;
+    }
     if (context.Request.Path.StartsWithSegments("/api/auth") || context.Request.Path.StartsWithSegments("/api/cart")
-        || context.Request.Path.StartsWithSegments("/api/orders") || context.Request.Path.StartsWithSegments("/api/actions"))
+        || context.Request.Path.StartsWithSegments("/api/orders") || context.Request.Path.StartsWithSegments("/api/actions")
+        || context.Request.Path.StartsWithSegments("/api/chat"))
         context.Response.Headers.CacheControl = "no-cache, no-store";
     await next();
 });
@@ -115,6 +126,7 @@ catalog.MapGet("/categories", async (ICatalogService service, CancellationToken 
     Results.Ok(await service.CategoriesAsync(ct)));
 app.MapShoppingEndpoints();
 app.MapOrderEndpoints();
+app.MapChat();
 app.MapCommerceOAuth();
 await using (var oauthScope = app.Services.CreateAsyncScope())
     await oauthScope.ServiceProvider.GetRequiredService<CommerceOAuth>().RegisterClientsAsync(

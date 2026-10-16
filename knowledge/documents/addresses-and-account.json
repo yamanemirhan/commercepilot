@@ -1,0 +1,8 @@
+{
+  "id": "addresses-and-account",
+  "title": "Account access and addresses",
+  "body": "Saved addresses are not supported in this version of CommercePilot. There is no address book, Addresses page, address editor or address management tool. Account > Addresses and profile/settings pages do not exist in this demo. The assistant cannot check personal saved-address records.\n\nThe checkout preview and order detail display a fixed fictional demo delivery destination. This is not a saved personal address and cannot be edited through chat. No real parcel is shipped. Open My orders at /orders and select an order to see its demo delivery destination and timeline. The order list and detail require sign-in and show only the current shopper's orders.\n\nTo sign in, use Account in the header. Account opens a dialog with email and password fields. Demo shoppers use pre-created accounts. Signing out is available from that dialog. There is no public registration, password reset or account profile editor in this version.",
+  "keywords": ["address", "addresses", "saved addresses", "address book", "delivery address", "adres", "adreslerim", "adresler", "hesap", "sign in", "account"],
+  "links": [{"label":"Your orders","path":"/orders"}],
+  "reviewedAt": "2026-10-16T12:00:00Z"
+}

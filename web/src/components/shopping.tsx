@@ -25,7 +25,8 @@ import {
 } from "lucide-react";
 import { money, Product } from "@/lib/catalog";
 import { ProductArt } from "./product-art";
-import { OrderCenter } from "./orders";
+import { ChatPanel } from "./chat";
+import Link from "next/link";
 
 type User = { id: string; email: string; displayName: string };
 type CartItem = {
@@ -57,6 +58,11 @@ type ShoppingContextValue = ShoppingState & {
   bagOpen: boolean;
   setAccountOpen: (value: boolean) => void;
   setBagOpen: (value: boolean) => void;
+  chatOpen: boolean;
+  chatDraft: string;
+  setChatOpen: (value: boolean) => void;
+  setChatDraft: (value: string) => void;
+  openChat: (message?: string) => void;
   refresh: () => Promise<void>;
   login: (email: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
@@ -125,6 +131,8 @@ export function ShoppingProvider({ children }: { children: ReactNode }) {
   const [notice, setNotice] = useState<string | null>(null);
   const [accountOpen, setAccountOpen] = useState(false);
   const [bagOpen, setBagOpen] = useState(false);
+  const [chatOpen, setChatOpen] = useState(false);
+  const [chatDraft, setChatDraft] = useState("");
   const generation = useRef(0);
   const mutationPending = useRef(false);
   const channel = useRef<BroadcastChannel | null>(null);
@@ -251,6 +259,14 @@ export function ShoppingProvider({ children }: { children: ReactNode }) {
         bagOpen,
         setAccountOpen,
         setBagOpen,
+        chatOpen,
+        chatDraft,
+        setChatOpen,
+        setChatDraft,
+        openChat: (message = "") => {
+          setChatDraft(message);
+          setChatOpen(true);
+        },
         refresh,
         login,
         logout,
@@ -288,8 +304,6 @@ export function ShoppingControls() {
   const bagDialog = useRef<HTMLDialogElement>(null);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [ordersOpen, setOrdersOpen] = useState(false);
-  const [checkout, setCheckout] = useState(false);
   useEffect(() => {
     if (shop.accountOpen) accountDialog.current?.showModal();
     else {
@@ -312,18 +326,15 @@ export function ShoppingControls() {
     <>
       <div className="shopping-controls">
         {shop.user && (
-          <button
+          <Link
             className="account-trigger"
-            disabled={!shop.ready}
-            onClick={() => {
-              setCheckout(false);
-              setOrdersOpen(true);
-            }}
+            href="/orders"
             aria-label="My orders"
+              onClick={() => shop.setChatOpen(false)}
           >
             <Package size={17} />
             <span>Orders</span>
-          </button>
+          </Link>
         )}
         <button
           className="account-trigger"
@@ -604,11 +615,10 @@ export function ShoppingControls() {
                   disabled={shop.busy || !shop.cart.isAvailable}
                   onClick={() => {
                     shop.setBagOpen(false);
-                    setCheckout(true);
-                    setOrdersOpen(true);
+                    shop.openChat("Prepare checkout for my bag.");
                   }}
                 >
-                  Review order <ArrowRight size={16} />
+                  Review in chat <ArrowRight size={16} />
                 </button>
                 <button
                   className="button light full-width"
@@ -639,14 +649,7 @@ export function ShoppingControls() {
           )}
         </div>
       </dialog>
-      {shop.user && (
-        <OrderCenter
-          key={shop.user.id}
-          open={ordersOpen}
-          checkout={checkout}
-          onClose={() => setOrdersOpen(false)}
-        />
-      )}
+      <ChatPanel key={shop.user?.id ?? "guest"} />
     </>
   );
 }

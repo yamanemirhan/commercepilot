@@ -1,5 +1,7 @@
 <Solution>
   <Folder Name="/src/">
+    <Project Path="src/Commerce.Knowledge/Commerce.Knowledge.csproj" />
+    <Project Path="src/Commerce.AI/Commerce.AI.csproj" />
     <Project Path="src/Commerce.Domain/Commerce.Domain.csproj" />
     <Project Path="src/Commerce.Application/Commerce.Application.csproj" />
     <Project Path="src/Commerce.Infrastructure/Commerce.Infrastructure.csproj" />
@@ -10,6 +12,8 @@
     <Project Path="tests/Commerce.IntegrationTests/Commerce.IntegrationTests.csproj" />
   </Folder>
   <Folder Name="/tools/">
+    <Project Path="tools/Commerce.Knowledge/Commerce.Knowledge.csproj" />
+    <Project Path="tools/Commerce.ModelProbe/Commerce.ModelProbe.csproj" />
     <Project Path="tools/Commerce.McpProbe/Commerce.McpProbe.csproj" />
   </Folder>
 </Solution>

@@ -1,0 +1,8 @@
+{
+  "id": "shopping-and-chat",
+  "title": "Shopping with the assistant",
+  "body": "Use the collection to search and filter products, inspect their details and add available items to your bag. Bag opens a dialog with item quantities, removal controls and totals. Chat can search products, show product details, read your bag and add, update or remove bag items. Stock, prices and bag contents must come from live store tools, not this public guide.\n\nThe assistant supports greetings and normal conversation related to this store. It can explain the site using verified reference cards. Unsupported or unrelated requests should receive a brief, polite explanation and a relevant next step. It cannot manage saved addresses, process real payments or invent store policies.\n\nChat remembers a bounded history and ordered references from actual tool results. Phrases like 'it' or 'the second one' refer to previously displayed items when unambiguous. If older context is missing or ambiguous, it should ask which item. Start a new conversation for a fresh context. Each conversation allows 100 turns and 2,000 characters per user message. The chat history persists for the signed-in account; it is not shared between shoppers.",
+  "keywords": ["bag", "cart", "products", "assistant", "chat", "search", "sepet", "ürün", "hello", "merhaba", "memory"],
+  "links": [{"label":"Browse products","path":"/#collection"}],
+  "reviewedAt": "2026-10-16T12:00:00Z"
+}

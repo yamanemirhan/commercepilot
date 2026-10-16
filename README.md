@@ -4,7 +4,7 @@ A considered storefront for everyday technology, built with Next.js, ASP.NET Cor
 
 Browse 32 fictional products across audio, workspace, everyday essentials, and gaming. Search, combine category and price filters, check availability, sort results, and inspect product details. Sign in with a local demo account to save a personal shopping bag, change quantities, or remove items. Catalog data, cart contents, and totals come from PostgreSQL through the .NET API.
 
-This version supports **catalog browsing, demo accounts, persistent shopping bags, explicit order approvals, simulated payments, delivery tracking, cancellations, refunds, and MCP tools for catalog, bags, order reads and checkout reviews**. The AI assistant is not implemented yet. Products and specifications are fictional; there are no real payments.
+Shop through a **persistent streaming assistant** powered by a local model and real MCP tools. Product, bag, order and approval cards appear together in chat, with explicit buttons for checkout, cancellation and refund decisions. Products and specifications are fictional; payments and delivery are simulated.
 
 ## Run locally
 
@@ -33,6 +33,8 @@ The accounts are `alex@commercepilot.local` and `sam@commercepilot.local`, with 
 | API liveness | http://localhost:5080/health/live |
 | Development OpenAPI document | http://localhost:5080/openapi/v1.json |
 | PostgreSQL | localhost:5438 |
+| MCP | http://127.0.0.1:5081/mcp |
+| Ollama (Windows host) | http://127.0.0.1:11434 |
 
 All published ports bind to loopback. This Compose configuration is for local development: it enables development OpenAPI and a single-instance migration/seed bootstrap. Do not expose it as a production deployment.
 
@@ -48,15 +50,15 @@ Stop the application while preserving catalog data:
 docker compose down
 ```
 
-Ollama and model downloads are not required for this catalog preview. The storefront uses original vector illustrations. Google Fonts is optional; local system fonts are the fallback when offline.
+Catalog browsing and the manual bag work without Ollama. For chat, install [Ollama](https://ollama.com/download/windows), run `ollama pull qwen3.8:27b`, and leave Ollama running on the host. Compose starts the storefront, API, MCP and database together; the API reaches Ollama through `host.docker.internal:11434`. No cloud account or API key is needed. The storefront uses original vector illustrations. Google Fonts is optional, with system-font fallbacks.
 
 ## Try an order
 
-1. Add a product to your bag and choose **Review order**.
-2. Select **Successful payment**, **Delayed payment**, or **Declined payment**, then choose **Review exact order**. Preparation creates a five-minute review, with no inventory reservation or payment.
-3. Inspect the items, exact total, fictional destination, and payment outcome. **Approve** places the order; **Reject** leaves the bag untouched. Closing the dialog leaves the review available under **Orders** until it expires.
-4. Open **Orders** to follow the recorded payment and shipping timeline. The open panel refreshes every five seconds. A successful payment moves to simulated dispatch after approximately two minutes, then delivery after another two minutes. A delayed payment completes after approximately 20 seconds before that shipping sequence begins.
-5. Use **Review cancellation** before dispatch, or **Review refund** within 30 days after delivery. Each requires a separate explicit approval.
+1. Sign in, open **Ask CommercePilot**, and ask for products. Follow up with “Tell me about the second one” or “Add it to my bag.”
+2. Ask “Prepare checkout for my bag.” For other demo outcomes, explicitly request a delayed or declined payment. Preparation creates a five-minute review without reserving inventory or executing payment.
+3. Inspect the inline card's items, exact total, fictional destination and payment outcome. **Approve** executes the review; **Reject** leaves the bag untouched. Typing “yes” never approves it.
+4. Ask “Show my orders” and open an order card to follow its separate payment/shipping states. Saved order cards refresh every 15 seconds while chat is visible. Successful payment moves to simulated dispatch after approximately two minutes, then delivery two minutes later; delayed payment completes after approximately 20 seconds.
+5. Choose **Review cancellation** before dispatch or **Review refund** within 30 days after delivery. Each creates another inline review requiring its own approval. **Pending reviews** also retrieves reviews prepared by a console MCP client.
 
 No card or personal address is collected. All orders use a fictional destination with zero shipping and tax. A declined payment produces a failed order, releases its reservation, and preserves the bag for a new review. Cancellation releases stock once and either voids a pending payment or refunds captured funds. A delivered-order refund returns the full captured demo amount but does not restock delivered goods. Partial refunds and physical returns are not supported.
 
@@ -70,11 +72,14 @@ Browser -> Next.js same-origin gateways -> ASP.NET Core API
                                          -> EF Core / PostgreSQL
 Demo scheduler -> Order service -> persisted payment / shipment transitions
 MCP client -> ASP.NET Core MCP server -> Catalog / Cart / Order services -> PostgreSQL
+Chat API -> Ollama (proposes tools) -> scoped MCP clients -> commerce tools
+Chat API -> PostgreSQL (turns, events, cards); SSE -> browser
 ```
 
 | Directory | Responsibility |
 | --- | --- |
-| `web` | Responsive storefront, sign-in, bag, approval and order dialogs, same-origin gateways |
+| `web` | Responsive storefront, sign-in, bag, streaming chat and inline cards, same-origin gateways |
+| `src/Commerce.AI` | Bounded local Ollama adapter, streamed text, tool schemas and response validation |
 | `src/Commerce.Domain` | Product, cart, order, approval and timeline models |
 | `src/Commerce.Application` | Catalog/cart/order contracts and input validation |
 | `src/Commerce.Infrastructure` | EF Core persistence, Identity users, migrations, application services, demo seeds |
@@ -138,10 +143,10 @@ Supported filters: `search`, `category`, `minPrice`, `maxPrice`, `inStock`. Sort
 
 ### MCP access
 
-After the normal local startup, enable the optional MCP service:
+MCP starts with the normal local stack. To rebuild it independently:
 
 ```powershell
-docker compose --profile mcp up --build -d mcp
+docker compose up --build -d mcp
 Invoke-RestMethod http://127.0.0.1:5081/health/ready
 ```
 
@@ -208,7 +213,7 @@ dotnet run --project tools/Commerce.McpProbe -- --action sam <action-id>
 
 `--prepare` obtains `orders:prepare actions:read` through `/api/auth/mcp-checkout-token` and calls `prepare_order`. Choose `success`, `failure` or `delay` for the local simulated payment outcome after approval. The server reads the authenticated shopper's bag and current prices, validates stock and stores an immutable five-minute review. It does not reserve inventory, clear the bag, create an order or run a payment. A new preparation supersedes the shopper's previous pending checkout review; preparation is not idempotent and the client never retries it automatically. After an uncertain response, inspect pending reviews in the storefront before preparing again.
 
-Open `http://localhost:3000`, sign in as the same account and open **Orders → Waiting for your review → New order**. Review the items, total, destination and simulated payment outcome, then explicitly approve or reject. Confirmation revalidates the saved terms. Merely opening or reading a review cannot approve it. The returned `snapshotHash` identifies those terms; it grants no authority to confirm. Confirmation/rejection remain authenticated, CSRF-protected HTTP operations used by the storefront and are not MCP tools.
+Open `http://localhost:3000`, sign in as the same account, open **Ask CommercePilot → Pending reviews**, and inspect the inline card. Review the items, total, destination and simulated payment outcome, then explicitly approve or reject. Confirmation revalidates the saved terms. Reading a review cannot approve it. The returned `snapshotHash` identifies those terms; it grants no authority to confirm. Confirmation/rejection remain authenticated, CSRF-protected HTTP operations and are not MCP tools.
 
 `--action` obtains only `actions:read` through `/api/auth/mcp-actions-token`. `get_pending_action_status` returns the owned review, including its terms, expiry, status and resulting order ID when completed. It can read completed, rejected, superseded or expired reviews as well as pending ones. A foreign or nonexistent ID returns the same `ActionNotFound` error. `Completed` means the review executed; inspect the resulting order for the actual payment outcome. Both new credential endpoints require a session and CSRF and share the existing issuance limit.
 
@@ -238,7 +243,7 @@ Cart credentials do not grant order access, and order credentials do not grant c
 
 The password-prompt commands above remain a **local first-party credential flow**. The API and MCP host share the existing Data Protection key ring, using a separate versioned MCP purpose and an explicit audience/issuer. Both hosts are in the same trust boundary. Sign-out ends the API session but does not revoke an issued credential; it expires after five minutes, with no refresh token. Browser-based OAuth is available separately below.
 
-The endpoint binds to loopback, restricts allowed hosts and rejects browser-origin requests; use a native MCP client. Preparation changes review records only. No tool confirms, rejects, cancels or refunds an order. Tool annotations describe behavior to clients; server code and authorization enforce access. Stateless transport does not provide conversation history. The API initializes the database; the MCP service uses the existing application services. If readiness fails during initial startup, wait for API readiness and retry. Stop the optional service with `docker compose --profile mcp stop mcp`.
+The endpoint binds to loopback, restricts allowed hosts and rejects browser-origin requests; use a native MCP client. Preparation changes review records only. No tool confirms, rejects, cancels or refunds an order. Tool annotations describe behavior to clients; server code and authorization enforce access. Stateless transport does not provide conversation history. The API initializes the database; the MCP service uses the existing application services. If readiness fails during initial startup, wait for API readiness and retry. Stopping MCP with `docker compose stop mcp` also makes chat tools unavailable.
 
 ### OAuth for native MCP clients
 
@@ -308,6 +313,34 @@ The web gateway defaults to `http://127.0.0.1:5080`; override it with the server
 
 ## Verification
 
+### Local model probe
+
+The command-line model probe uses a local Ollama model and the real MCP transport. It can search the catalog and explain returned products in English. It has no shopper credentials and can execute only `search_products` and `get_product`. The storefront chat separately uses server-issued, owner-bound grants for the 12 supported commerce tools.
+
+Install [Ollama](https://ollama.com/download/windows), leave its local server running, and download the model:
+
+```powershell
+ollama pull qwen3.8:27b
+docker compose up -d api mcp
+dotnet run --project tools/Commerce.ModelProbe -- --catalog "Show two in-stock Audio products under 100 dollars, cheapest first."
+```
+
+The default model is approximately 18 GB and is intended for the development machine's 24 GB GPU. The probe explicitly requests an 8,192-token context, a 2,048-token generation budget including thinking, deterministic sampling, and one inference at a time. Thinking is enabled but never returned or retained by the adapter. It uses `http://127.0.0.1:11434`; Ollama remains on the Windows host. Set `OLLAMA_MODEL` to an already installed compatible model with tool and thinking support to compare locally. No cloud provider or API key is required.
+
+The adapter bounds request/response sizes and time, rejects incomplete responses, unavailable tools and malformed arguments, and makes no automatic retries. These checks do not replace the MCP server's authorization and commerce validation. Tool results and prior calls are fed back to the model for the next reply. The probe keeps that history only for the current command and limits the exchange to four model rounds.
+
+`Commerce.ModelProbe --help` also describes proposal-only evaluation using an externally supplied corpus and MCP schema export. Evaluation never executes proposed tools. A test can export the actual scoped MCP schemas by setting `MODEL_SCHEMA_OUTPUT` to a local file before running `scripts/test.ps1`. Keep evaluation corpora and reports outside version control; they are local working material.
+
+### Chat storage and recovery
+
+Conversations, complete tool results and UI events are stored in PostgreSQL under the signed-in account. The browser stores only the selected conversation ID. Refresh reads saved events and current approval/order states; it never re-executes a tool. Deleting a conversation removes its chat records, while commerce records remain independent.
+
+The model receives bounded recent complete turns and a compact index of real referenced entities and ordered result sets. Older details can leave the 8K context, so the assistant may ask you to identify an item again. Hidden reasoning, cookies and access tokens are never included in stored chat messages. Text is rendered as escaped text with simple bold formatting; tool data is rendered by typed components, not model-authored HTML.
+
+Limits: 50 conversations per account, 100 turns per conversation, 2,000 input characters, five model rounds per turn, at most four calls per model response and a three-minute turn deadline. Only one reply runs per conversation; inference is serial per API process. A crashed turn becomes interrupted after its four-minute lease expires. Cancellation cannot undo an already-submitted mutation, so check the bag or **Pending reviews** before asking for another change. Chat history has no automatic time-based expiry in this local version; delete conversations when no longer needed.
+
+### Application checks
+
 Against the running Compose stack:
 
 ```powershell
@@ -348,6 +381,14 @@ npm run build
 ```
 
 ## Troubleshooting
+
+### Site knowledge and order pages
+
+**My orders** opens `/orders`; each owned order has a dedicated detail page. Cancellation and refund reviews still complete inside the chat panel.
+
+The assistant retrieves reviewed public site guidance from a versioned PostgreSQL/pgvector index, using local EmbeddingGemma embeddings. It shows reference cards alongside streamed replies. Personal records remain behind owner-bound MCP tools. Install `embeddinggemma:latest`, then publish the reviewed bundle with `powershell -NoProfile -ExecutionPolicy Bypass -File scripts/knowledge.ps1 publish -Value "operator-name"` after starting the updated stack. See [the knowledge operations guide](knowledge/README.md) for source drift checks, updates, deployment, failure behavior and rollback.
+
+Knowledge changes must pass `scripts/knowledge.ps1 validate`; the API image build and CI enforce this. If source files changed, review the documents and run `scripts/knowledge.ps1 review` before rebuilding. A missing or incompatible knowledge release disables verified site guidance, not the underlying commerce tools.
 
 - **PowerShell blocks scripts:** use the `powershell.exe -NoProfile -ExecutionPolicy Bypass -File ...` form shown above. It applies only to that process and does not change your machine policy.
 - **Docker cannot connect:** start Docker Desktop and select Linux containers.

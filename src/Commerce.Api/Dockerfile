@@ -2,6 +2,10 @@ FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 WORKDIR /source
 COPY global.json Directory.Build.props CommercePilot.slnx ./
 COPY src/ src/
+COPY knowledge/ knowledge/
+COPY web/src/ web/src/
+COPY tools/Commerce.Knowledge/ tools/Commerce.Knowledge/
+RUN dotnet run --project tools/Commerce.Knowledge -- validate
 RUN dotnet publish src/Commerce.Api -c Release -o /app
 
 FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS runtime

@@ -1,0 +1,6 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <ProjectReference Include="../Commerce.Infrastructure/Commerce.Infrastructure.csproj" />
+    <ProjectReference Include="../Commerce.AI/Commerce.AI.csproj" />
+  </ItemGroup>
+</Project>

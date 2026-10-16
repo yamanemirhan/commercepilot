@@ -1,0 +1,8 @@
+{
+  "id": "site-navigation",
+  "title": "Finding your way around CommercePilot",
+  "body": "CommercePilot is a fictional ecommerce demo for everyday home and desk essentials. The home page is at /. The collection section is at /#collection. Use the search, category, price, in-stock and sorting controls to explore products. Product details open in a dialog on the storefront; there is no separate product detail page.\n\nThe header contains Sign in or the signed-in shopper's name, Bag and the assistant control. Signed-in shoppers also see My orders, which opens the dedicated /orders page. Selecting an order opens its own detail page. Account and Bag open dialogs; they are not separate profile or cart pages. The assistant opens as a panel and is also available on order pages.\n\nThere is no address book, Addresses page, saved-address editor, wishlist, gift card system or shopper registration screen. Generic profile/settings pages and an external support portal are not available. The current demo uses pre-created shopper accounts.",
+  "keywords": ["navigation", "pages", "site", "where", "which page", "sayfa", "hangi sayfada", "nerede", "account", "profile"],
+  "links": [{"label":"Browse the collection","path":"/#collection"},{"label":"Your orders","path":"/orders"}],
+  "reviewedAt": "2026-10-16T12:00:00Z"
+}

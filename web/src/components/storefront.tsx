@@ -18,7 +18,7 @@ import {
   X,
 } from "lucide-react";
 import { ProductArt } from "./product-art";
-import { AddToBag, ShoppingControls } from "./shopping";
+import { AddToBag, ShoppingControls, useShopping } from "./shopping";
 import { CatalogPage, Category, money, Product } from "@/lib/catalog";
 
 const categoryNames = [
@@ -30,6 +30,7 @@ const categoryNames = [
 ];
 
 export function Storefront() {
+  const shop = useShopping();
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [category, setCategory] = useState("All essentials");
@@ -212,8 +213,8 @@ export function Storefront() {
               <span className="small-note">Find your next favorite.</span>
             </div>
             <div className="hero-footnote">
-              <span className="tiny-stars">✳</span> Designed around life. Chosen
-              with care.
+              <span className="tiny-stars">✳</span> Designed around life.
+              Chosen with care.
             </div>
           </div>
           <div className="hero-visual">
@@ -512,11 +513,8 @@ export function Storefront() {
               Great essentials don’t need to be complicated. Just right for you.
             </p>
           </div>
-          <button
-            className="button light"
-            onClick={() => aboutDialog.current?.showModal()}
-          >
-            Get to know us <ArrowUpRight size={17} />
+          <button className="button light" onClick={() => shop.openChat()}>
+            Find it together <ArrowUpRight size={17} />
           </button>
         </section>
       </main>
@@ -635,8 +633,8 @@ export function Storefront() {
           CommercePilot is an interactive commerce demo. Products,
           specifications, prices, and stock are fictional. This preview lets you
           explore the catalog, save a personal bag, approve demo orders and
-          follow simulated deliveries. The AI shopping assistant is not yet
-          enabled.
+          follow simulated deliveries. Ask the shopping assistant to find
+          products, manage your bag and prepare reviews, all within chat.
         </p>
         <button
           className="button dark"
