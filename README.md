@@ -1,10 +1,49 @@
 # CommercePilot
 
-A considered storefront for everyday technology, built with Next.js, ASP.NET Core, and PostgreSQL.
+A local AI shopping assistant built with Next.js, ASP.NET Core, and the Model Context Protocol (MCP).
 
-Browse 32 fictional products across audio, workspace, everyday essentials, and gaming. Search, combine category and price filters, check availability, sort results, and inspect product details. Sign in with a local demo account to save a personal shopping bag, change quantities, or remove items. Catalog data, cart contents, and totals come from PostgreSQL through the .NET API.
+CommercePilot combines a working storefront with a persistent, streaming chat. Ask for products, refer to "the second one," update your bag, and review a checkout without leaving the conversation. The assistant calls real MCP tools against PostgreSQL; the application validates ownership, prices, stock and permissions before accepting a change.
 
-Shop through a **persistent streaming assistant** powered by a local model and real MCP tools. Product, bag, order and approval cards appear together in chat, with explicit buttons for checkout, cancellation and refund decisions. Products and specifications are fictional; payments and delivery are simulated.
+Local models handle conversation and retrieval. Versioned site knowledge helps the assistant explain actual pages and supported features, with visible source cards. Checkout, cancellation and refund require an explicit **Approve** button; a message such as "yes" does not execute them. Products and specifications are fictional, and payments and delivery are simulated.
+
+## In the chat
+
+These screenshots show actual English conversations with the running local model and MCP server. Click an image to view it at its original size.
+
+| Find products | Review before committing | Get grounded site guidance |
+| --- | --- | --- |
+| <a href="docs/images/chat-product-discovery.jpg"><img src="docs/images/chat-product-discovery.jpg" alt="A real chat search returns two in-stock Audio products under $100, with prices, stock and action buttons." width="280"></a> | <a href="docs/images/chat-inline-approval.jpg"><img src="docs/images/chat-inline-approval.jpg" alt="An inline checkout review shows one Pebble Mini, a $69 total, expiry, and explicit Reject and Approve buttons." width="280"></a> | <a href="docs/images/chat-site-guidance.jpg"><img src="docs/images/chat-site-guidance.jpg" alt="The assistant explains where to track orders, accompanied by versioned site reference cards." width="280"></a> |
+
+The demonstrated flow searched the live catalog, resolved "the second one" to Pebble Mini, added it to the bag, and prepared the review shown above. The demo review was then rejected and the bag restored. The knowledge example retrieved the published site guide before answering.
+
+## What you can do
+
+- **Browse and shop:** search 32 demo products across Audio, Workspace, Everyday and Gaming; combine filters, inspect details and keep a persistent personal bag.
+- **Use conversational references:** follow up with "add it" or "the second one." Ordered tool results and bounded conversation history provide the context; unclear references require clarification.
+- **Review consequential changes:** inspect exact checkout, cancellation or refund terms in chat, then approve or reject with a button. Prices, stock and eligibility are checked again when you approve.
+- **Track orders in either interface:** use chat or the dedicated `/orders` list and individual detail pages, including payment state and a simulated delivery timeline.
+- **Ask about the site:** retrieve reviewed public guidance using local embeddings, with source excerpts, links and version information. Personal order and bag data still comes from authenticated tools.
+
+## How it works
+
+1. The browser sends your message through the same-origin Next.js gateway to the authenticated .NET API.
+2. The API loads bounded conversation history and retrieves relevant published site guidance from PostgreSQL/pgvector using local EmbeddingGemma embeddings.
+3. Qwen3.8 proposes a reply or tool calls. The API validates those calls and sends them through the real MCP SDK client to the MCP server, which checks the shopper's identity and scopes and invokes shared commerce services.
+4. Tool results return to the model for its next response and become typed product, bag, order or review cards. Text and card events stream to the browser; conversation records persist in PostgreSQL.
+5. A critical action stops at a review. Only the authenticated UI's approval endpoint can execute it after fresh validation. The model has no confirmation tool.
+
+**MCP access, chat memory and RAG have separate jobs.** MCP exposes authorized live operations. Chat memory retains previous messages and actual tool results. RAG retrieves public site facts. The MCP server uses stateless HTTP requests; conversation continuity is implemented by the application and database.
+
+| Layer | Technology |
+| --- | --- |
+| Storefront and chat | Next.js 16, React 19, TypeScript, authored CSS |
+| API and business rules | ASP.NET Core / .NET 10, ASP.NET Core Identity |
+| MCP transport | Official C# SDK, Streamable HTTP, scoped credentials and OAuth + PKCE for external clients |
+| Persistence and retrieval | PostgreSQL 18, EF Core, pgvector, full-text and vector search |
+| Local AI | Ollama, Qwen3.8 27B for conversation, EmbeddingGemma for embeddings |
+| Local runtime | Docker Compose; Ollama on the host for GPU access |
+
+[Run locally](#run-locally) · [Try an order](#try-an-order) · [Architecture](#architecture) · [MCP access](#mcp-access) · [Site knowledge](#site-knowledge-and-order-pages) · [Verification](#verification)
 
 ## Run locally
 
@@ -50,14 +89,22 @@ Stop the application while preserving catalog data:
 docker compose down
 ```
 
-Catalog browsing and the manual bag work without Ollama. For chat, install [Ollama](https://ollama.com/download/windows), run `ollama pull qwen3.8:27b`, and leave Ollama running on the host. Compose starts the storefront, API, MCP and database together; the API reaches Ollama through `host.docker.internal:11434`. No cloud account or API key is needed. The storefront uses original vector illustrations. Google Fonts is optional, with system-font fallbacks.
+Catalog browsing and the manual bag work without Ollama. For chat and site guidance, install [Ollama](https://ollama.com/download/windows), leave it running on the host, and run the following after starting the stack. The knowledge publishing command also requires the .NET 10 SDK.
+
+```powershell
+ollama pull qwen3.8:27b
+ollama pull embeddinggemma:latest
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\knowledge.ps1 publish -Value "local-operator"
+```
+
+The models need downloading only once; the published knowledge index survives restarts. Qwen3.8 27B was evaluated on a 24 GB GPU; see [Local model probe](#local-model-probe) for memory and context settings. Compose starts the storefront, API, MCP and database together; the API reaches Ollama through `host.docker.internal:11434`. No cloud account or API key is needed. The storefront uses original vector illustrations. Google Fonts is optional, with system-font fallbacks.
 
 ## Try an order
 
 1. Sign in, open **Ask CommercePilot**, and ask for products. Follow up with “Tell me about the second one” or “Add it to my bag.”
 2. Ask “Prepare checkout for my bag.” For other demo outcomes, explicitly request a delayed or declined payment. Preparation creates a five-minute review without reserving inventory or executing payment.
 3. Inspect the inline card's items, exact total, fictional destination and payment outcome. **Approve** executes the review; **Reject** leaves the bag untouched. Typing “yes” never approves it.
-4. Ask “Show my orders” and open an order card to follow its separate payment/shipping states. Saved order cards refresh every 15 seconds while chat is visible. Successful payment moves to simulated dispatch after approximately two minutes, then delivery two minutes later; delayed payment completes after approximately 20 seconds.
+4. Click **Orders** in the header for the dedicated order list, then select an order to see its details. You can also ask “Show my orders” in chat. Order pages and saved chat order cards refresh every 15 seconds while visible. Successful payment moves to simulated dispatch after approximately two minutes, then delivery two minutes later; delayed payment completes after approximately 20 seconds.
 5. Choose **Review cancellation** before dispatch or **Review refund** within 30 days after delivery. Each creates another inline review requiring its own approval. **Pending reviews** also retrieves reviews prepared by a console MCP client.
 
 No card or personal address is collected. All orders use a fictional destination with zero shipping and tax. A declined payment produces a failed order, releases its reservation, and preserves the bag for a new review. Cancellation releases stock once and either voids a pending payment or refunds captured funds. A delivered-order refund returns the full captured demo amount but does not restock delivered goods. Partial refunds and physical returns are not supported.
@@ -74,18 +121,24 @@ Demo scheduler -> Order service -> persisted payment / shipment transitions
 MCP client -> ASP.NET Core MCP server -> Catalog / Cart / Order services -> PostgreSQL
 Chat API -> Ollama (proposes tools) -> scoped MCP clients -> commerce tools
 Chat API -> PostgreSQL (turns, events, cards); SSE -> browser
+Chat API -> EmbeddingGemma -> PostgreSQL / pgvector (published site references)
+Reviewed knowledge files -> operator CLI -> embeddings -> atomic index publication
 ```
 
 | Directory | Responsibility |
 | --- | --- |
-| `web` | Responsive storefront, sign-in, bag, streaming chat and inline cards, same-origin gateways |
+| `web` | Responsive storefront, sign-in, bag, order pages, streaming chat and inline cards, same-origin gateways |
 | `src/Commerce.AI` | Bounded local Ollama adapter, streamed text, tool schemas and response validation |
 | `src/Commerce.Domain` | Product, cart, order, approval and timeline models |
 | `src/Commerce.Application` | Catalog/cart/order contracts and input validation |
 | `src/Commerce.Infrastructure` | EF Core persistence, Identity users, migrations, application services, demo seeds |
 | `src/Commerce.Api` | Authenticated HTTP endpoints, CSRF validation, rate limiting, health checks |
 | `src/Commerce.Mcp` | Streamable HTTP MCP endpoint with public catalog tools, scoped bag access, order reads and checkout reviews |
+| `src/Commerce.Knowledge` | Reviewed document validation, local embeddings, atomic publication and hybrid retrieval |
+| `knowledge` | Public site guidance, allowed links, source review fingerprints and publishing documentation |
 | `tools/Commerce.McpProbe` | Console MCP client for discovery, catalog calls and optional local shopper login |
+| `tools/Commerce.ModelProbe` | Local model adapter probe and proposal-only evaluation runner |
+| `tools/Commerce.Knowledge` | Operator CLI to review, validate, publish and query site knowledge |
 | `tests/Commerce.IntegrationTests` | Real PostgreSQL tests for identity, ownership, approvals, stock concurrency and payment/order transitions |
 | `scripts` | Local startup and running-application verification |
 
@@ -380,15 +433,15 @@ npm run typecheck
 npm run build
 ```
 
-## Troubleshooting
-
-### Site knowledge and order pages
+## Site knowledge and order pages
 
 **My orders** opens `/orders`; each owned order has a dedicated detail page. Cancellation and refund reviews still complete inside the chat panel.
 
 The assistant retrieves reviewed public site guidance from a versioned PostgreSQL/pgvector index, using local EmbeddingGemma embeddings. It shows reference cards alongside streamed replies. Personal records remain behind owner-bound MCP tools. Install `embeddinggemma:latest`, then publish the reviewed bundle with `powershell -NoProfile -ExecutionPolicy Bypass -File scripts/knowledge.ps1 publish -Value "operator-name"` after starting the updated stack. See [the knowledge operations guide](knowledge/README.md) for source drift checks, updates, deployment, failure behavior and rollback.
 
 Knowledge changes must pass `scripts/knowledge.ps1 validate`; the API image build and CI enforce this. If source files changed, review the documents and run `scripts/knowledge.ps1 review` before rebuilding. A missing or incompatible knowledge release disables verified site guidance, not the underlying commerce tools.
+
+## Troubleshooting
 
 - **PowerShell blocks scripts:** use the `powershell.exe -NoProfile -ExecutionPolicy Bypass -File ...` form shown above. It applies only to that process and does not change your machine policy.
 - **Docker cannot connect:** start Docker Desktop and select Linux containers.
