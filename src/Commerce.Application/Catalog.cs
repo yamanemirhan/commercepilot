@@ -1,7 +1,11 @@
+using System.Text.Json.Serialization;
+
 namespace Commerce.Application;
 
 public sealed record ProductDto(Guid Id, string Slug, string Name, string Description,
-    string Category, decimal Price, string Currency, int Stock, string Artwork, string Color, string? Badge);
+    string Category, decimal Price, string Currency, int Stock, string Artwork, string Color,
+    // MCP declares this constructor property required but nullable; keep it in the result even when null.
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.Never)] string? Badge);
 
 public sealed record CatalogQuery(string? Search = null, string? Category = null,
     decimal? MinPrice = null, decimal? MaxPrice = null, string Sort = "featured",

@@ -81,6 +81,31 @@ public sealed class McpTests(CommerceFixture fixture) : IClassFixture<CommerceFi
     }
 
     [Theory]
+    [InlineData("search_products")]
+    [InlineData("get_product")]
+    public async Task Public_catalog_results_include_null_badge_required_by_the_output_schema(string toolName)
+    {
+        using var factory = Factory(); using var http = factory.CreateClient();
+        await using var transport = Transport(http);
+        await using var client = await McpClient.CreateAsync(transport);
+        using var scope = fixture.Factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<CommerceDbContext>();
+        var product = await db.Products.FirstAsync(p => p.Badge == null);
+        var arguments = toolName == "get_product"
+            ? new Dictionary<string, object?> { ["productId"] = product.Id }
+            : new Dictionary<string, object?> { ["search"] = product.Name };
+
+        var result = await client.CallToolAsync(toolName, arguments);
+        Assert.False(result.IsError is true);
+        Assert.NotNull(result.StructuredContent);
+        var body = JsonSerializer.SerializeToElement(result.StructuredContent);
+        var item = toolName == "get_product" ? body : body.GetProperty("items").EnumerateArray()
+            .Single(value => value.GetProperty("id").GetGuid() == product.Id);
+        Assert.True(item.TryGetProperty("badge", out var badge), "A required nullable field must be present for schema-validating MCP clients.");
+        Assert.Equal(JsonValueKind.Null, badge.ValueKind);
+    }
+
+    [Theory]
     [InlineData(0)]
     [InlineData(49)]
     public async Task Invalid_limits_return_a_tool_error_instead_of_an_unbounded_query(int limit)

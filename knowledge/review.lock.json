@@ -1,6 +1,6 @@
 {
   "contentHash": "d707ad7aa387db735f891a8b65d6ea32868058441634e451a26d9a37459715be",
-  "applicationRevision": "5da4821ff807a98fd65af04b8d2131bfa7caa2a4e54484db2230cabf75a3fc5c",
+  "applicationRevision": "2e0bedab62a2c1151e74de74fe013a389ffb85a7e4393225620575fa98ebe862",
   "files": {
     "src/Commerce.AI/ModelContracts.cs": "83fb3b2835148503bba95700e1eff285fd8d86eb92d1878c18dbecee6bc756fa",
     "src/Commerce.AI/OllamaChatModel.cs": "6ac9162b2f06e440b4b947351b0a5c0e3bef11bfcefc8f45feeedb0bd1a38fae",
@@ -21,7 +21,7 @@
     "src/Commerce.Api/ShoppingEndpoints.cs": "f740fa1180ea8046409294a070642a1ecc60b8f43efc9cbbd63abf7075f4581d",
     "src/Commerce.Api/SiteKnowledge.cs": "39ed1960d32ce6e64fc9471a522f32cf35ccf010426ea1bbfa739c62ab3a389c",
     "src/Commerce.Application/Cart.cs": "6e359eb4faeafd1f77267de0de8262ebbfe8d41cb303e4deeac4242ee6d09b87",
-    "src/Commerce.Application/Catalog.cs": "4f0eeb3591e22fea3a6a2c1aeddb3c4509c022069c54295962f118c3daa186da",
+    "src/Commerce.Application/Catalog.cs": "2d49f308bdb8428ac319a9194bd3d1166e375b773cdc142c84e4d21a162b20bc",
     "src/Commerce.Application/Orders.cs": "ddcb778f04fcd64c60d5cef693a55e59215c02c3a86dd06f2b0e5cb9a5a1032c",
     "src/Commerce.Domain/CartItem.cs": "cc7c16559a260d12d505b04e49e30c694bac5d5d4b9e775780d707da18c9a5b9",
     "src/Commerce.Domain/Conversation.cs": "63586f5a1b01e2fdffd7e8e978ebbea1455c2eb3a33755e71fdbad1ef53b9a07",

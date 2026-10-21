@@ -137,6 +137,7 @@ Reviewed knowledge files -> operator CLI -> embeddings -> atomic index publicati
 | `src/Commerce.Knowledge` | Reviewed document validation, local embeddings, atomic publication and hybrid retrieval |
 | `knowledge` | Public site guidance, allowed links, source review fingerprints and publishing documentation |
 | `tools/Commerce.McpProbe` | Console MCP client for discovery, catalog calls and optional local shopper login |
+| `tools/commerce-agent` | TypeScript MCP client for public tool discovery and direct catalog searches |
 | `tools/Commerce.ModelProbe` | Local model adapter probe and proposal-only evaluation runner |
 | `tools/Commerce.Knowledge` | Operator CLI to review, validate, publish and query site knowledge |
 | `tests/Commerce.IntegrationTests` | Real PostgreSQL tests for identity, ownership, approvals, stock concurrency and payment/order transitions |
@@ -195,6 +196,8 @@ Supported filters: `search`, `category`, `minPrice`, `maxPrice`, `inStock`. Sort
 ## Development
 
 ### MCP access
+
+For the Node.js/TypeScript client, see [TypeScript MCP client](tools/commerce-agent/README.md). It lists public tools and performs a direct catalog search without a model or login.
 
 MCP starts with the normal local stack. To rebuild it independently:
 
