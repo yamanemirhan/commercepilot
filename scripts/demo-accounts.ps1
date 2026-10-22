@@ -1,7 +1,7 @@
 $ErrorActionPreference = 'Stop'
 $configFile = Join-Path (Split-Path -Parent $PSScriptRoot) '.env'
 if (-not (Test-Path -LiteralPath $configFile)) { throw 'Run ./scripts/start.ps1 first.' }
-foreach ($name in @('ALEX', 'SAM')) {
+foreach ($name in @('ALEX', 'SAM', 'ADMIN')) {
     $key = "DEMO_${name}_PASSWORD"
     $line = Get-Content -LiteralPath $configFile | Where-Object { $_ -match "^$key=" } | Select-Object -First 1
     if (-not $line) { throw "Missing $key. Run ./scripts/start.ps1." }

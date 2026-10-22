@@ -1,5 +1,19 @@
 {
   "schemaVersion": 1,
-  "watchedFiles": ["web/src/", "src/Commerce.Api/", "src/Commerce.Application/", "src/Commerce.Domain/", "src/Commerce.Mcp/", "src/Commerce.Knowledge/", "src/Commerce.AI/", "src/Commerce.Infrastructure/"],
-  "routes": ["/", "/#collection", "/orders"]
+  "watchedFiles": [
+    "web/src/",
+    "src/Commerce.Api/",
+    "src/Commerce.Application/",
+    "src/Commerce.Domain/",
+    "src/Commerce.Mcp/",
+    "src/Commerce.Knowledge/",
+    "src/Commerce.AI/",
+    "src/Commerce.Infrastructure/"
+  ],
+  "routes": [
+    "/",
+    "/#collection",
+    "/orders",
+    "/admin"
+  ]
 }

@@ -28,7 +28,7 @@ import { ProductArt } from "./product-art";
 import { ChatPanel } from "./chat";
 import Link from "next/link";
 
-type User = { id: string; email: string; displayName: string };
+type User = { id: string; email: string; displayName: string; isAdmin: boolean };
 type CartItem = {
   productId: string;
   name: string;
@@ -325,6 +325,7 @@ export function ShoppingControls() {
   return (
     <>
       <div className="shopping-controls">
+        {shop.user?.isAdmin && <Link className="account-trigger" href="/admin" onClick={() => shop.setChatOpen(false)}>Admin</Link>}
         {shop.user && (
           <Link
             className="account-trigger"

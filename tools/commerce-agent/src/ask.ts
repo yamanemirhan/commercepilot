@@ -24,7 +24,8 @@ async function main(): Promise<void> {
     const model = createCatalogModel(signal);
     console.log(`Local model: ${modelName}. Public catalog tools only. Tracing disabled.`);
     const answer = await runCatalogAgent(question, client, tools => model.bindTools(tools), signal, event => {
-      if (event.type === "model") console.log(`\n[Model round ${event.round}]`);
+      if (event.type === "node") console.log(`[Graph: ${event.name}] ${event.phase}${event.elapsedMs === undefined ? "" : ` (${event.elapsedMs} ms)`}`);
+      else if (event.type === "model") console.log(`\n[Model round ${event.round}]`);
       else if (event.type === "call") console.log(`\n[Model-selected tool] ${event.name}\n${JSON.stringify(event.arguments, null, 2)}`);
       else console.log(`\n[MCP ${event.isError ? "error" : "result"}] ${event.name}\n${JSON.stringify(event.data, null, 2)}`);
     });

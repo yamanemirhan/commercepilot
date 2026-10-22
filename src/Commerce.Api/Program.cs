@@ -29,7 +29,7 @@ builder.Services.AddIdentityCore<CommerceUser>(options =>
     options.Password.RequiredLength = 12;
     options.Lockout.MaxFailedAccessAttempts = 5;
     options.Lockout.DefaultLockoutTimeSpan = TimeSpan.FromMinutes(5);
-}).AddEntityFrameworkStores<CommerceDbContext>().AddSignInManager();
+}).AddRoles<IdentityRole>().AddEntityFrameworkStores<CommerceDbContext>().AddSignInManager();
 builder.Services.AddAuthentication(IdentityConstants.ApplicationScheme).AddIdentityCookies();
 builder.Services.ConfigureApplicationCookie(options =>
 {
@@ -79,6 +79,11 @@ builder.Services.AddHealthChecks().AddCheck<DatabaseHealthCheck>("postgres", tag
 
 var app = builder.Build();
 app.UseExceptionHandler();
+app.Use((context, next) =>
+{
+    if (context.Request.Path.StartsWithSegments("/api/admin")) context.Response.Headers.CacheControl = "no-store";
+    return next();
+});
 app.UseStatusCodePages();
 app.Use((context, next) => app.Services.GetRequiredService<OAuthRequestLimits>().InvokeAsync(context, next));
 app.UseAuthentication();
@@ -106,6 +111,8 @@ if (app.Environment.IsDevelopment() && builder.Configuration.GetValue<bool>("Dat
     await using var scope = app.Services.CreateAsyncScope();
     await CatalogSeed.InitializeAsync(scope.ServiceProvider.GetRequiredService<CommerceDbContext>());
     await IdentitySeed.InitializeAsync(scope.ServiceProvider.GetRequiredService<UserManager<CommerceUser>>(), builder.Configuration);
+    await IdentitySeed.InitializeAdministratorAsync(scope.ServiceProvider.GetRequiredService<UserManager<CommerceUser>>(),
+        scope.ServiceProvider.GetRequiredService<RoleManager<IdentityRole>>(), builder.Configuration);
 }
 
 app.MapHealthChecks("/health/live", new HealthCheckOptions { Predicate = _ => false });
@@ -127,6 +134,7 @@ catalog.MapGet("/categories", async (ICatalogService service, CancellationToken 
 app.MapShoppingEndpoints();
 app.MapOrderEndpoints();
 app.MapChat();
+app.MapAdmin();
 app.MapCommerceOAuth();
 await using (var oauthScope = app.Services.CreateAsyncScope())
     await oauthScope.ServiceProvider.GetRequiredService<CommerceOAuth>().RegisterClientsAsync(

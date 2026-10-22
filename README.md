@@ -23,6 +23,7 @@ The demonstrated flow searched the live catalog, resolved "the second one" to Pe
 - **Review consequential changes:** inspect exact checkout, cancellation or refund terms in chat, then approve or reject with a button. Prices, stock and eligibility are checked again when you approve.
 - **Track orders in either interface:** use chat or the dedicated `/orders` list and individual detail pages, including payment state and a simulated delivery timeline.
 - **Ask about the site:** retrieve reviewed public guidance using local embeddings, with source excerpts, links and version information. Personal order and bag data still comes from authenticated tools.
+- **Monitor assistant activity:** an administrator workspace shows requests by user, model token usage, durations, tool errors and request timelines, refreshing every three seconds.
 
 ## How it works
 
@@ -53,7 +54,7 @@ Install Docker Desktop with Linux containers and start it. From the repository r
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\start.ps1
 ```
 
-The script generates a local database password and two unique demo passwords in the ignored `.env` file, builds the application, applies migrations, seeds missing catalog entries/accounts, and waits for readiness. Existing catalog and cart data are preserved. The first run downloads container images and dependencies.
+The script generates a local database password and three unique demo account passwords in the ignored `.env` file, builds the application, applies migrations, seeds missing catalog entries/accounts, and waits for readiness. Existing catalog and cart data are preserved. The first run downloads container images and dependencies.
 
 Open **[localhost:3000](http://localhost:3000)**.
 
@@ -77,7 +78,7 @@ The accounts are `alex@commercepilot.local` and `sam@commercepilot.local`, with 
 
 All published ports bind to loopback. This Compose configuration is for local development: it enables development OpenAPI and a single-instance migration/seed bootstrap. Do not expose it as a production deployment.
 
-Without PowerShell, copy `.env.example` to `.env`, replace the database placeholder with a randomly generated **alphanumeric** password, and supply two distinct demo passwords (at least 12 characters with uppercase, lowercase, digits, and a symbol). Then run:
+Without PowerShell, copy `.env.example` to `.env`, replace the database placeholder with a randomly generated **alphanumeric** password, and supply three distinct demo account passwords (at least 12 characters with uppercase, lowercase, digits, and a symbol). Then run:
 
 ```sh
 docker compose up --build -d
@@ -98,6 +99,16 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\knowledge.ps1 
 ```
 
 The models need downloading only once; the published knowledge index survives restarts. Qwen3.8 27B was evaluated on a 24 GB GPU; see [Local model probe](#local-model-probe) for memory and context settings. Compose starts the storefront, API, MCP and database together; the API reaches Ollama through `host.docker.internal:11434`. No cloud account or API key is needed. The storefront uses original vector illustrations. Google Fonts is optional, with system-font fallbacks.
+
+## Administrator workspace
+
+Sign in as `admin@commercepilot.local` using the password printed by `scripts/demo-accounts.ps1`, then open **Admin** in the header or [localhost:3000/admin](http://localhost:3000/admin). On an existing installation, rerun `scripts/start.ps1` to generate the administrator password and create the missing account. Alex and Sam remain ordinary shoppers.
+
+The workspace polls persisted storefront chat events every three seconds while visible. Filter requests by user and select a request for its model/tool timeline. Metrics include active requests, failures, input/output tokens, completed-request P95 duration, pending reviews and MCP tool usage. Tokens include model thinking, but reasoning content is never displayed. Old requests without model telemetry show missing values rather than invented counts.
+
+The view covers the latest 200 retained requests in 24 hours, with a bounded event sample and up to 100 users. It includes imported review requests and is not a lifetime analytics ledger: deleting a conversation also removes its activity. It exposes operational metadata and account identifiers to administrators, never message text, tool arguments or results. Each API request rechecks the current database role and lockout state; changing or revoking the role takes effect even with an existing cookie. Automatic administrator creation is limited to the development bootstrap and never re-grants a revoked role to an existing account.
+
+The standalone TypeScript LangGraph client prints its own node activity in the terminal; those anonymous runs are not attributed to shoppers or included in this workspace. See [the catalog assistant guide](tools/commerce-agent/README.md).
 
 ## Try an order
 

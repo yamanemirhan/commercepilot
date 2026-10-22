@@ -20,7 +20,8 @@ public static class ShoppingEndpoints
         {
             context.Response.Headers.CacheControl = "no-store";
             var user = await users.GetUserAsync(context.User);
-            return Results.Ok(new { user = user is null ? null : new { user.Id, user.Email, user.DisplayName } });
+            return Results.Ok(new { user = user is null ? null : new { user.Id, user.Email, user.DisplayName,
+                isAdmin = !await users.IsLockedOutAsync(user) && await users.IsInRoleAsync(user, IdentitySeed.AdministratorRole) } });
         });
         auth.MapPost("/login", async (LoginRequest request, SignInManager<CommerceUser> signIn, UserManager<CommerceUser> users) =>
         {
@@ -30,7 +31,8 @@ public static class ShoppingEndpoints
             var user = await users.FindByEmailAsync(request.Email.Trim());
             var result = user is null ? SignInResult.Failed :
                 await signIn.PasswordSignInAsync(user, request.Password, isPersistent: false, lockoutOnFailure: true);
-            return result.Succeeded ? Results.Ok(new { user = new { user!.Id, user.Email, user.DisplayName } }) :
+            return result.Succeeded ? Results.Ok(new { user = new { user!.Id, user.Email, user.DisplayName,
+                isAdmin = await users.IsInRoleAsync(user, IdentitySeed.AdministratorRole) } }) :
                 Results.Problem("Sign-in failed. Check your details or try again later.", statusCode: 401);
         }).AddEndpointFilter<CsrfFilter>().RequireRateLimiting("login");
         auth.MapPost("/logout", async (SignInManager<CommerceUser> signIn) =>

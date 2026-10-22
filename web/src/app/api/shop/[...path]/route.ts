@@ -10,6 +10,7 @@ const methods: Record<string, string[]> = {
   orders: ["GET"],
   actions: ["GET"],
   "orders/prepare": ["POST"],
+  "admin/overview": ["GET"],
 };
 
 async function forward(
@@ -24,6 +25,7 @@ async function forward(
     );
   const guid = "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}";
   const orderRead = new RegExp(`^(orders|actions)/${guid}$`, "i").test(route);
+  const adminRead = new RegExp(`^admin/turns/${guid}$`, "i").test(route);
   const orderWrite = new RegExp(
     `^(orders/${guid}/prepare-(cancellation|refund)|actions/${guid}/(confirm|reject))$`,
     "i",
@@ -37,7 +39,7 @@ async function forward(
   const streaming = chatWrite && route.endsWith("/messages");
   const allowed = itemRoute
     ? ["PUT", "DELETE"]
-    : orderRead
+    : orderRead || adminRead
       ? ["GET"]
       : orderWrite
         ? ["POST"]

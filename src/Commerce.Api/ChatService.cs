@@ -172,9 +172,14 @@ public sealed class ChatService(CommerceDbContext db, IChatModel model, IChatToo
                     pendingText.Clear();
                 }
                 var context = ChatMemory.Context(instructions, memory, history, current, session.Tools);
+                var modelStarted = System.Diagnostics.Stopwatch.GetTimestamp();
+                await EmitAsync(turn, "model.started", new { round = round + 1 }, publish, ct);
                 var reply = model is IStreamingChatModel streaming
                     ? await streaming.StreamAsync(context, session.Tools, Text, ct)
                     : await model.CompleteAsync(context, session.Tools, ct);
+                await EmitAsync(turn, "model.completed", new { round = round + 1,
+                    durationMs = System.Diagnostics.Stopwatch.GetElapsedTime(modelStarted).TotalMilliseconds,
+                    inputTokens = reply.Usage.InputTokens, outputTokens = reply.Usage.OutputTokens }, publish, ct);
                 if (model is not IStreamingChatModel) await Text(reply.Message.Content);
                 if (pendingText.Length > 0) await EmitAsync(turn, "message.delta", new { messageId, text = pendingText.ToString() }, publish, ct);
                 current.Add(reply.Message);
@@ -219,7 +224,7 @@ public sealed class ChatService(CommerceDbContext db, IChatModel model, IChatToo
                     current.Add(new("tool", ChatPolicy.ModelData(card), ToolName: call.Function.Name));
                     // All completed call/result pairs survive refresh. Incomplete turns never auto-resume.
                     turn.MessagesJson = JsonSerializer.Serialize(current, Json);
-                    await EmitAsync(turn, "tool.completed", new { toolCallId = callId, isError = result.IsError }, publish, ct);
+                    await EmitAsync(turn, "tool.completed", new { toolCallId = callId, name = call.Function.Name, isError = result.IsError }, publish, ct);
                     await EmitAsync(turn, "card.upsert", ChatPolicy.Dto(card), publish, ct);
                     if (result.IsError && ChatPolicy.IsWrite(call.Function.Name))
                     {
@@ -239,7 +244,7 @@ public sealed class ChatService(CommerceDbContext db, IChatModel model, IChatToo
                 ? "The reply stopped. A submitted change may have completed. Refresh and check your bag or review before requesting it again."
                 : error is ModelProtocolException ? "I couldn't safely finish that request. Try a shorter question or name the item again."
                 : "The assistant is unavailable right now. Your history is saved. Check the connection, then send a new message.";
-            await EmitAsync(turn, "turn.failed", new { message, outcomeUncertain = hadWrite }, requestCt.IsCancellationRequested ? null : publish, CancellationToken.None);
+            await EmitAsync(turn, "turn.failed", new { message, outcomeUncertain = hadWrite, errorType = error.GetType().Name }, requestCt.IsCancellationRequested ? null : publish, CancellationToken.None);
         }
         finally
         {

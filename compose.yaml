@@ -30,6 +30,7 @@ services:
       Chat__OllamaUrl: http://host.docker.internal:11434/
       DemoAccounts__AlexPassword: ${DEMO_ALEX_PASSWORD:?Run scripts/start.ps1 to initialize demo credentials}
       DemoAccounts__SamPassword: ${DEMO_SAM_PASSWORD:?Run scripts/start.ps1 to initialize demo credentials}
+      DemoAccounts__AdminPassword: ${DEMO_ADMIN_PASSWORD:?Run scripts/start.ps1 to initialize the administrator}
     ports:
       - "127.0.0.1:5080:8080"
     depends_on:

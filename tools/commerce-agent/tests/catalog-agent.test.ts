@@ -3,7 +3,7 @@ import { test } from "node:test";
 import { AIMessage, ToolMessage } from "@langchain/core/messages";
 import type { BaseMessage, ToolCall } from "@langchain/core/messages";
 import type { Client, Tool, CallToolResult } from "@modelcontextprotocol/client";
-import { runCatalogAgent } from "../src/catalog-agent.js";
+import { runCatalogAgent, type AgentEvent } from "../src/catalog-agent.js";
 
 const productId = "10000000-0000-0000-0000-000000000020";
 const catalog: Tool[] = [
@@ -106,4 +106,25 @@ test("cancellation after inference prevents tool execution", async () => {
     cancellation.abort(); return reply([search]);
   } }), cancellation.signal, () => {}));
   assert.deepEqual(executed, []);
+});
+
+test("graph routes model to tools and back, then ends; a new run has no prior product state", async () => {
+  const { client } = fixture();
+  const events: AgentEvent[] = [];
+  const replies = [reply([search]), reply([], "Here is a desk light.")];
+  await runCatalogAgent("Find a light", client, () => ({ invoke: async () => replies.shift()! }),
+    AbortSignal.timeout(5000), event => events.push(event));
+  assert.deepEqual(events.flatMap(event => event.type === "node" && event.phase === "started" ? [event.name] : []),
+    ["model", "tools", "model"]);
+  await assert.rejects(runCatalogAgent("Tell me about it", client, () => ({ invoke: async () =>
+    reply([{ id: "detail", name: "get_product", args: { productId } }]) }), AbortSignal.timeout(5000), () => {}), /not supplied or retrieved/);
+});
+
+test("a direct answer ends the graph without entering its tools node", async () => {
+  const { client, executed } = fixture();
+  const events: AgentEvent[] = [];
+  assert.equal(await runCatalogAgent("Hello", client, () => ({ invoke: async () => reply([], "Hello!") }),
+    AbortSignal.timeout(5000), event => events.push(event)), "Hello!");
+  assert.deepEqual(executed, []);
+  assert.ok(!events.some(event => event.type === "node" && event.name === "tools"));
 });

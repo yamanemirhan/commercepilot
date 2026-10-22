@@ -11,7 +11,7 @@ if (-not (Test-Path -LiteralPath '.env')) {
     Set-Content -LiteralPath '.env' -Value "POSTGRES_PASSWORD=$(New-LocalPassword)" -Encoding ascii
     Write-Host 'Created local database configuration.'
 }
-foreach ($account in @('ALEX', 'SAM')) {
+foreach ($account in @('ALEX', 'SAM', 'ADMIN')) {
     $key = "DEMO_${account}_PASSWORD"
     if (-not (Select-String -LiteralPath '.env' -Pattern "^$key=" -Quiet)) {
         Add-Content -LiteralPath '.env' -Value "$key=Cp1!$(New-LocalPassword)" -Encoding ascii
