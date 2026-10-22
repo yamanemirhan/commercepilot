@@ -108,7 +108,7 @@ The workspace polls persisted storefront chat events every three seconds while v
 
 The view covers the latest 200 retained requests in 24 hours, with a bounded event sample and up to 100 users. It includes imported review requests and is not a lifetime analytics ledger: deleting a conversation also removes its activity. It exposes operational metadata and account identifiers to administrators, never message text, tool arguments or results. Each API request rechecks the current database role and lockout state; changing or revoking the role takes effect even with an existing cookie. Automatic administrator creation is limited to the development bootstrap and never re-grants a revoked role to an existing account.
 
-The standalone TypeScript LangGraph client prints its own node activity in the terminal; those anonymous runs are not attributed to shoppers or included in this workspace. See [the catalog assistant guide](tools/commerce-agent/README.md).
+The standalone TypeScript LangGraph client prints its own node activity in the terminal. Its runs, including the account-isolated conversation demo, are not included in this administrator workspace. See [the catalog assistant guide](tools/commerce-agent/README.md).
 
 ## Try an order
 
@@ -208,7 +208,7 @@ Supported filters: `search`, `category`, `minPrice`, `maxPrice`, `inStock`. Sort
 
 ### MCP access
 
-For the Node.js/TypeScript client, see [TypeScript catalog assistant](tools/commerce-agent/README.md). It supports direct MCP calls and a separate LangChain/Ollama command that selects public catalog tools from natural-language questions. The storefront chat continues to use the .NET implementation.
+For the Node.js/TypeScript client, see [TypeScript catalog assistant](tools/commerce-agent/README.md). It supports direct MCP calls, a LangChain/Ollama catalog assistant, optional sanitized LangSmith traces, and a local authenticated conversation demo with RAM or PostgreSQL checkpoints. Conversation history is bounded and isolated by account. The storefront chat continues to use the .NET implementation.
 
 MCP starts with the normal local stack. To rebuild it independently:
 
