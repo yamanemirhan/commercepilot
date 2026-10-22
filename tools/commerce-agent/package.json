@@ -9,6 +9,8 @@
   "scripts": {
     "mcp": "tsx src/index.ts",
     "ask": "tsx src/ask.ts",
+    "ask:preview": "tsx src/ask.ts --trace-preview",
+    "ask:trace": "tsx src/ask.ts --trace",
     "typecheck": "tsc --noEmit",
     "test": "tsx --test tests/*.test.ts"
   },
@@ -17,6 +19,7 @@
     "@langchain/langgraph": "1.5.2",
     "@langchain/ollama": "1.3.0",
     "@modelcontextprotocol/client": "2.3.1",
+    "langsmith": "0.11.0",
     "zod": "4.3.6"
   },
   "devDependencies": {

@@ -57,10 +57,36 @@ npm.cmd --prefix tools/commerce-agent run ask -- 'Find the cheapest in-stock des
 
 Use single quotes in PowerShell so `$100` reaches the model literally. The command prints `[Model-selected tool]`, `[MCP result]` and `[Answer]`. Tool selection and the final English answer come from the model; catalog facts come from the real MCP server. Only `search_products` and `get_product` are allowed, even if the server advertises other tools.
 
-Each command starts fresh: messages and results stay in RAM only for that request. There is no checkpointer, cross-command memory, RAG, authenticated shopping or web-chat integration in this client. LangSmith tracing is explicitly disabled before model initialization. The existing storefront continues using its .NET chat implementation.
+Each command starts fresh: messages and results stay in RAM only for that request. There is no checkpointer, cross-command memory, RAG, authenticated shopping or web-chat integration in this client. Automatic LangSmith tracing is explicitly disabled before model initialization; the optional exporter below sends only selected operational metadata. The existing storefront continues using its .NET chat implementation.
 
 The graph runs `START → model → tools → model → END`; a direct reply takes `model → END`. The shared state contains messages, the round count, retrieved product IDs, failed-call fingerprints and the final answer. `MessagesValue` merges new messages into the existing history; nodes return updates instead of mutating shared state. Conditional routing sends only validated calls to the tools node. `[Graph: model]` and `[Graph: tools]` report node starts, completion and elapsed milliseconds. A recursion limit backs up the explicit model/tool budgets.
 
 Execution is limited to 2,000 question characters, four model rounds, two proposed calls per round and a three-minute deadline. Input schemas are validated without coercing arguments; unknown fields, ungrounded product IDs and searches exceeding five results are rejected. Tool errors are passed back as errors, repeated failed calls are blocked, and connection failures stop the command. Hidden reasoning is not printed or included in the next model round. Model settings: 8K context, 2,048 generated tokens including thinking, temperature 0, seed 42, no automatic downloads or model retries. Context limits fail explicitly rather than silently truncating tool history.
 
 The automated tests exercise graph routing, fresh-run isolation and tool safety with controlled model replies. Running the commands above separately exercises the actual local model and MCP service; model wording may vary.
+
+## Optional LangSmith tracing
+
+The normal `ask` command never exports traces, even when LangSmith credentials or automatic-tracing environment variables are present. First inspect a local preview, without an account or upload:
+
+```powershell
+npm.cmd --prefix tools/commerce-agent run ask:preview -- 'Show two in-stock Audio products under $100, cheapest first.'
+```
+
+This saves `.local/last-agent-trace.json`, excluded from Git. It shows the `catalog_agent` root, `model` and `tools` nodes, and individual MCP tool spans nested under `tools`. Model spans include input/output token counts; output tokens include thinking. Only fixed span names, generated run IDs, timestamps, status, token counts and fixed provider/model metadata are retained. Prompts, final replies, reasoning, arguments, tool results, product/user identifiers, cookies, environment metadata and raw exception messages are excluded before serialization. This deliberately prevents replaying conversations or inspecting their text in LangSmith.
+
+To enable uploads for an individual command:
+
+1. Create a [LangSmith account and a **Tracing Only** API key](https://docs.langchain.com/langsmith/create-account-api-key) scoped to your workspace. A tracing key can submit traces but cannot read stored traces or administer the account.
+2. Copy `tools/commerce-agent/langsmith.env.example` to `.local/langsmith.env` at the repository root. Set the key there; never commit it. Set `LANGSMITH_ENDPOINT` to your account's US or EU region and, if needed, `LANGSMITH_WORKSPACE_ID`. The default project is `commercepilot-learning`.
+3. Run the command below. Its first successful upload creates the project if the key permits project creation. In LangSmith, open that project and inspect the trace ID printed by the command.
+
+```powershell
+npm.cmd --prefix tools/commerce-agent run ask:trace -- 'Show two in-stock Audio products under $100, cheapest first.'
+```
+
+The file overrides matching shell variables without populating `process.env`. It never turns on automatic tracing. Only the official US/EU HTTPS endpoints are accepted, and redirects are rejected. `src/tracing.ts` constructs explicit `RunTree` relationships and submits one awaited SDK batch **after** execution, including completed error/cancellation spans. Traces are not live during inference, and a forced process termination can lose the trace. There is a five-second upload deadline, no automatic retry and no disk retry queue. A failed upload prints a fixed warning and preserves the catalog answer; it may still have reached the server if the response was lost. The preview file is overwritten only by `ask:preview`.
+
+As checked on October 22, 2026, the [Developer plan](https://www.langchain.com/pricing) includes one seat and up to 5,000 base traces per month. [Personal organizations without a payment card stop at the free trace limit](https://docs.langchain.com/langsmith/billing); adding a card enables billable excess usage. No paid subscription, cloud model or deployment is required here. Account-wide usage and current provider terms remain authoritative.
+
+References: [custom instrumentation](https://docs.langchain.com/langsmith/annotate-code), [data masking](https://docs.langchain.com/langsmith/mask-inputs-outputs), [LLM token metadata](https://docs.langchain.com/langsmith/log-llm-trace).

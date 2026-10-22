@@ -10,7 +10,7 @@ type CatalogClient = Pick<Client, "listTools" | "callTool">;
 type ModelInvoker = { invoke(messages: BaseMessage[], options: { signal: AbortSignal }): Promise<AIMessage> };
 type BindModel = (tools: BindToolsInput[]) => ModelInvoker;
 export type AgentEvent =
-  | { type: "node"; name: "model" | "tools"; phase: "started" | "completed"; elapsedMs?: number }
+  | { type: "node"; name: "model" | "tools"; phase: "started" | "completed"; elapsedMs?: number; inputTokens?: number; outputTokens?: number }
   | { type: "model"; round: number }
   | { type: "call"; name: string; arguments: Record<string, unknown> }
   | { type: "result"; name: string; isError: boolean; data: unknown };
@@ -95,7 +95,7 @@ export async function runCatalogAgent(
     const calls = reply.tool_calls ?? [];
     if (calls.length === 0) {
       if (!reply.content.trim()) throw new Error("The model returned no answer.");
-      report({ type: "node", name: "model", phase: "completed", elapsedMs: Math.round(performance.now() - started) });
+      report({ type: "node", name: "model", phase: "completed", elapsedMs: Math.round(performance.now() - started), inputTokens: usage.input_tokens, outputTokens: usage.output_tokens });
       return { rounds: round, messages: [new AIMessage(reply.content)], answer: reply.content };
     }
     if (calls.length > 2 || round === 4) throw new Error("Tool-call budget exceeded; no further tools were executed.");
@@ -115,7 +115,7 @@ export async function runCatalogAgent(
     }
 
     // Retain the assistant's calls, but discard provider metadata and hidden thinking.
-    report({ type: "node", name: "model", phase: "completed", elapsedMs: Math.round(performance.now() - started) });
+    report({ type: "node", name: "model", phase: "completed", elapsedMs: Math.round(performance.now() - started), inputTokens: usage.input_tokens, outputTokens: usage.output_tokens });
     return { rounds: round, messages: [new AIMessage({ content: reply.content, tool_calls: calls })] };
   }
 
