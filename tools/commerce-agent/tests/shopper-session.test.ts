@@ -36,3 +36,31 @@ test("authentication errors do not expose response bodies or submitted credentia
     return true;
   });
 });
+
+test("scoped grant issuance uses CSRF, validates scopes/expiry and caches only in the session", async () => {
+  let grantCalls = 0, checks = 0;
+  const session = new ShopperSession(async (input, init) => {
+    const path = String(input).split("/").at(-1);
+    if (path === "session") { checks++; return Response.json({ user: { id: "alex" } }); }
+    if (path === "csrf") return Response.json({ token: "csrf" });
+    assert.equal(path, "mcp-cart-token");
+    assert.equal(init?.method, "POST");
+    assert.equal(new Headers(init?.headers).get("X-CSRF-Token"), "csrf");
+    grantCalls++;
+    return Response.json({ accessToken: "PRIVATE_TOKEN", scope: "cart:read cart:write", expiresAt: new Date(Date.now() + 300_000).toISOString() });
+  });
+  assert.equal(await session.issueMcpToken("cart:write"), "PRIVATE_TOKEN");
+  assert.equal(await session.issueMcpToken("cart:write"), "PRIVATE_TOKEN");
+  assert.equal(grantCalls, 1); assert.equal(checks, 2);
+});
+
+for (const bad of [{ scope: "cart:read cart:write" }, { expiresAt: "2000-01-01T00:00:00Z" }, { accessToken: "bad token" }]) {
+  test(`rejects malformed or overly broad grants: ${Object.keys(bad)[0]}`, async () => {
+    const session = new ShopperSession(async input => {
+      const path = String(input).split("/").at(-1);
+      return Response.json(path === "session" ? { user: { id: "alex" } } : path === "csrf" ? { token: "csrf" }
+        : { accessToken: "PRIVATE_TOKEN", scope: "cart:read", expiresAt: new Date(Date.now() + 300_000).toISOString(), ...bad });
+    });
+    await assert.rejects(session.issueMcpToken("cart:read"), /invalid MCP grant/);
+  });
+}

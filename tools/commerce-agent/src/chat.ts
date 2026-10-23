@@ -11,16 +11,16 @@ async function main() {
   if (mode === "--help") {
     console.log("Usage: npm run chat:ram -- alex | npm run chat:postgres -- alex (or sam)");
     console.log("Local developer demo: signs in through the API using ignored .env demo credentials.");
-    console.log("Commands: /new, /list, /use <id>, /delete <id>, /exit. Public catalog tools only; no trace upload.");
+    console.log("Commands: /new, /list, /use <id>, /delete <id>, /cart-edit <request>, /exit. Catalog, own cart/orders; no trace upload.");
     return;
   }
   if (!["ram", "postgres"].includes(mode ?? "") || !["alex", "sam"].includes(account ?? "") || extra.length) {
     throw new Error("Use chat:ram or chat:postgres with alex or sam. See chat --help.");
   }
   const [{ RamConversations, Conversations }, { PostgresConversations, localMemoryPool }, { ShopperSession },
-    { connectMcp }, { createCatalogModel }, { runCatalogAgent }] = await Promise.all([
+    { connectShopperMcp }, { createCatalogModel }, { runCatalogAgent }] = await Promise.all([
     import("./conversations.js"), import("./postgres-memory.js"), import("./shopper-session.js"),
-    import("./mcp.js"), import("./model.js"), import("./catalog-agent.js"),
+    import("./shopper-mcp.js"), import("./model.js"), import("./catalog-agent.js"),
   ]);
   const session = new ShopperSession();
   const store = mode === "ram" ? new RamConversations() : new PostgresConversations(await localMemoryPool());
@@ -31,8 +31,8 @@ async function main() {
     if (store instanceof PostgresConversations) await store.pruneExpired();
     const conversations = new Conversations(store, () => session.owner());
     let selected: string | undefined;
-    console.log(`Signed in as ${account}. Memory: ${mode}. Public catalog tools only. Trace mode: off.`);
-    console.log("/new, /list, /use <id>, /delete <id>, /exit. Type a question to start a conversation.");
+    console.log(`Signed in as ${account}. Memory: ${mode}. Catalog + your cart/orders. Trace mode: off.`);
+    console.log("/new, /list, /use <id>, /delete <id>, /exit. Use /cart-edit <request> to enable one cart change for that turn.");
     console.log("Memory retains up to four complete turns (8 KB); conversations expire after 24 hours and allow 30 turns.");
     input = createInterface({ input: process.stdin, output: process.stdout });
     // One iterator supports both interactive terminals and piped learning/test transcripts.
@@ -53,17 +53,19 @@ async function main() {
           if (selected === id) selected = undefined;
           console.log("Conversation and all its checkpoints deleted.");
         } else if (text) {
-          if (text.startsWith("/") || text.length > 2000) throw new Error("Use a supported command or a question of 1–2000 characters.");
+          const cartWrite = text.startsWith("/cart-edit ");
+          const question = cartWrite ? text.slice(11).trim() : text;
+          if (!question || question.startsWith("/") || question.length > 2000) throw new Error("Use a supported command or a question of 1–2000 characters.");
           selected ??= (await conversations.create()).id;
           const signal = AbortSignal.timeout(180_000);
           const answer = await conversations.run(selected, async memory => {
-            const client = await connectMcp(signal);
+            const client = await connectShopperMcp(session, signal, cartWrite);
             try {
               const model = createCatalogModel(signal);
-              return await runCatalogAgent(text, client, tools => model.bindTools(tools), signal, event => {
+              return await runCatalogAgent(question, client, tools => model.bindTools(tools), signal, event => {
                 if (event.type === "node") console.log(`[${event.name}] ${event.phase}`);
                 if (event.type === "call") console.log(`[Tool] ${event.name}`);
-              }, memory);
+              }, memory, { cartWrite });
             } finally { await client.close(); }
           });
           console.log(`CommercePilot> ${answer}`);
@@ -72,7 +74,7 @@ async function main() {
       } catch (error) {
         const message = error instanceof Error ? error.message : "";
         const safe = /^(Conversation |RAM conversation|Your session |This conversation |The latest turn |This request exceeds|Use a supported command)/.test(message);
-        console.error(safe ? message : "The operation failed. Check API/MCP/Ollama/database availability. After a failed turn, use /new.");
+        console.error(safe ? message : "The operation failed. Use /new and check your cart before retrying any edit: a change may already have happened. Check session and service availability.");
       }
       process.stdout.write("You> ");
     }

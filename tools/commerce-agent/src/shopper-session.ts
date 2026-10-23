@@ -1,7 +1,14 @@
+export type McpGrant = "cart:read" | "cart:write" | "orders:read";
+const grants = {
+  "cart:read": { path: "mcp-token", scope: "cart:read" },
+  "cart:write": { path: "mcp-cart-token", scope: "cart:read cart:write" },
+  "orders:read": { path: "mcp-orders-token", scope: "orders:read" },
+} as const;
 // Cookie and CSRF values live only inside this local CLI object, never in graph state/configuration.
 export class ShopperSession {
   private readonly cookies = new Map<string, string>();
   private signedInOwner?: string;
+  private readonly tokens = new Map<McpGrant, { value: string; expires: number }>();
   constructor(private readonly request: typeof fetch = fetch) {}
   private async send(path: string, init: RequestInit = {}) {
     const response = await this.request(`http://127.0.0.1:5080/api/auth/${path}`, {
@@ -39,7 +46,23 @@ export class ShopperSession {
     this.signedInOwner = owner;
     return owner;
   }
-  private clear() { this.cookies.clear(); this.signedInOwner = undefined; }
+  async issueMcpToken(grant: McpGrant): Promise<string> {
+    if (!Object.hasOwn(grants, grant)) throw new Error("Unsupported MCP grant.");
+    await this.owner();
+    const cached = this.tokens.get(grant);
+    if (cached && cached.expires > Date.now() + 185_000) return cached.value;
+    const { path, scope } = grants[grant];
+    const body = await (await this.send(path, { method: "POST", headers: { "X-CSRF-Token": await this.csrf() } })).json() as
+      { accessToken?: unknown; scope?: unknown; expiresAt?: unknown };
+    const expires = typeof body.expiresAt === "string" ? Date.parse(body.expiresAt) : NaN;
+    if (typeof body.accessToken !== "string" || !body.accessToken || body.accessToken.length > 8192 || /\s/.test(body.accessToken) ||
+        body.scope !== scope || !Number.isFinite(expires) || expires <= Date.now() || expires > Date.now() + 310_000) {
+      throw new Error("The API returned an invalid MCP grant.");
+    }
+    this.tokens.set(grant, { value: body.accessToken, expires });
+    return body.accessToken;
+  }
+  private clear() { this.cookies.clear(); this.tokens.clear(); this.signedInOwner = undefined; }
   async logout() {
     try {
       if (this.signedInOwner) await this.send("logout", { method: "POST", headers: { "X-CSRF-Token": await this.csrf() } });

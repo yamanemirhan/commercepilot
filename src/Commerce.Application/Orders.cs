@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace Commerce.Application;
 
 public sealed record OrderLine(Guid ProductId, string Name, string Artwork, string Color,
@@ -9,7 +11,10 @@ public sealed record PendingActionDto(Guid Id, string Kind, string Status, strin
 public sealed record OrderEventDto(DateTimeOffset At, string Title, string Detail);
 public sealed record OrderDto(Guid Id, string Number, string Status, string PaymentStatus,
     decimal Total, string Currency, decimal CapturedAmount, decimal RefundedAmount,
-    DateTimeOffset CreatedAt, DateTimeOffset? NextTransitionAt, string Destination,
+    DateTimeOffset CreatedAt,
+    // MCP output schemas require this property even when there is no scheduled transition.
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.Never)] DateTimeOffset? NextTransitionAt,
+    string Destination,
     IReadOnlyList<OrderLine> Items, IReadOnlyList<OrderEventDto> Timeline, bool CanCancel, bool CanRefund);
 
 public sealed class OrderFault(int status, string message) : Exception(message)

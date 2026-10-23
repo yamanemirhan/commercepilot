@@ -57,7 +57,7 @@ npm.cmd --prefix tools/commerce-agent run ask -- 'Find the cheapest in-stock des
 
 Use single quotes in PowerShell so `$100` reaches the model literally. The command prints `[Model-selected tool]`, `[MCP result]` and `[Answer]`. Tool selection and the final English answer come from the model; catalog facts come from the real MCP server. Only `search_products` and `get_product` are allowed, even if the server advertises other tools.
 
-Each `ask` command starts fresh: messages and results stay in RAM only for that request. The separate `chat` commands below add conversation checkpoints. There is no RAG, authenticated shopping or web-chat integration in this client yet. Automatic LangSmith tracing is explicitly disabled before model initialization; the optional exporter below sends only selected operational metadata. The existing storefront continues using its .NET chat implementation.
+Each `ask` command starts fresh: messages and results stay in RAM only for that request. The separate `chat` commands below add conversation checkpoints and authenticated cart/order tools. RAG and web-chat integration are not yet connected to this client. Automatic LangSmith tracing is explicitly disabled before model initialization; the optional exporter below sends only selected operational metadata. The existing storefront continues using its .NET chat implementation.
 
 The graph runs `START → model → tools → model → END`; a direct reply takes `model → END`. The shared state contains messages, the round count, retrieved product IDs, failed-call fingerprints and the final answer. `MessagesValue` merges new messages into the existing history; nodes return updates instead of mutating shared state. Conditional routing sends only validated calls to the tools node. `[Graph: model]` and `[Graph: tools]` report node starts, completion and elapsed milliseconds. A recursion limit backs up the explicit model/tool budgets.
 
@@ -111,7 +111,7 @@ Show two in-stock Audio products under $100, cheapest first.
 Tell me more about the second one, including its current stock.
 ```
 
-The graph loads previous user/assistant messages and paired tool results using a stable `thread_id`. The model resolves references from that context and uses `get_product` to refresh facts. Checkpointing does not guarantee correct reference resolution; an ambiguous or forgotten reference should produce a clarification question. MCP still performs public catalog operations; authentication here protects conversation ownership and does not grant cart/order tools.
+The graph loads previous user/assistant messages and paired tool results using a stable `thread_id`. The model resolves references from that context and uses live tools to refresh facts. Checkpointing does not guarantee correct reference resolution; an ambiguous or forgotten reference should produce a clarification question. Conversation ownership and MCP permissions are separate checks: the API authenticates the shopper, and scoped MCP credentials authorize the tools described below.
 
 Commands inside the chat:
 
@@ -121,13 +121,14 @@ Commands inside the chat:
 | `/list` | List only the signed-in account's unexpired conversation IDs and status. |
 | `/use <id>` | Select one of those conversations; PostgreSQL can resume it after a process restart. |
 | `/delete <id>` | Delete that account's conversation and every checkpoint, blob and pending write. |
+| `/cart-edit <request>` | Enable at most one cart change for this message, such as `/cart-edit Add one of the second product to my cart.` |
 | `/exit` | End the CLI and discard login cookies. RAM history is lost; PostgreSQL history remains. |
 
-Use `sam` instead of `alex` in a separate command to verify account isolation. Sam cannot select, continue or delete Alex's conversation even with its ID. Ownership checks run before checkpoint access, and PostgreSQL advisory locks prevent overlapping turns/deletes across CLI processes. A failed or interrupted turn is blocked rather than silently replayed; start a new conversation or delete the failed one. Public read tools are the only tools enabled in this checkpoint.
+Use `sam` instead of `alex` in a separate command to verify account isolation. Sam cannot select, continue or delete Alex's conversation even with its ID. Ownership checks run before checkpoint access, and PostgreSQL advisory locks prevent overlapping turns/deletes across CLI processes. A failed or interrupted turn is blocked rather than silently replayed; start a new conversation and read the current cart before deciding whether to retry an edit. A failed answer or lost response does not prove that the cart operation failed.
 
 Limits are explicit: up to **four complete prior turns and 8,000 serialized UTF-8 bytes** of retained history, 20 unexpired conversations per account (20 total in a RAM process), 30 attempted turns per conversation and a fixed 24-hour lifetime. Oldest complete turns are removed together, preserving assistant/tool-call pairing. The system instruction is regenerated once per request; model rounds, failed-call fingerprints and the previous answer reset each turn. Product-ID authority is recomputed from retained sources. The existing 16 KB model-input guard and 8K model context still apply; a single oversized exchange fails instead of keeping broken tool history. Forgotten information is not stored in a hidden summary.
 
-`MemorySaver` and `PostgresSaver` save graph checkpoints, including intermediate states. PostgreSQL uses synchronous writes so a completed turn can be loaded after restart. The latest context is bounded, but older checkpoint versions remain until deletion/expiry cleanup; the 30-turn limit also bounds versions per conversation. Checkpoints contain conversation text and public tool results, so protect the local database and its backups. The CLI disables cloud tracing; `ask:trace` remains a separate opt-in command.
+`MemorySaver` and `PostgresSaver` save graph checkpoints, including intermediate states. PostgreSQL uses synchronous writes so a completed turn can be loaded after restart. The latest context is bounded, but older checkpoint versions remain until deletion/expiry cleanup; the 30-turn limit also bounds versions per conversation. Checkpoints contain conversation text and selected catalog/cart/order data, so protect the local database and its backups. The CLI disables cloud tracing; `ask:trace` remains a separate opt-in command.
 
 Expired conversations are immediately inaccessible. PostgreSQL chat startup removes up to 100 expired conversations; physical cleanup while the CLI is closed requires the maintenance command below. A future hosted service must schedule it regularly and use a restricted database role. It does not delete existing storefront chat tables.
 
@@ -138,3 +139,30 @@ npm.cmd --prefix tools/commerce-agent run test:memory
 ```
 
 Read `src/conversation-context.ts` for whole-turn trimming, `src/catalog-agent.ts` for checkpoint loading/resetting, `src/conversations.ts` for authenticated access and the RAM implementation, `src/postgres-memory.ts` for ownership/locking/retention, and `src/shopper-session.ts` for API authentication. [Official LangGraph memory documentation](https://docs.langchain.com/oss/javascript/langgraph/add-memory).
+
+## Authenticated cart and order tools
+
+Normal `chat:ram` and `chat:postgres` messages can search products, read the signed-in shopper's cart, list their recent orders, and retrieve an order's status. `ask` remains an anonymous catalog-only command. Try `Show my cart.`, `Show my recent orders.`, and `What is the status of the first order?`.
+
+| Tool group | API credential endpoint | Scope | Exposed tools |
+| --- | --- | --- | --- |
+| Catalog | None | Public | `search_products`, `get_product` |
+| Cart reading | `/api/auth/mcp-token` | `cart:read` | `get_cart` |
+| Explicit cart edit | `/api/auth/mcp-cart-token` | `cart:read cart:write` | `get_cart`, `add_to_cart`, `update_cart_item`, `remove_from_cart` |
+| Order reading | `/api/auth/mcp-orders-token` | `orders:read` | `get_my_orders`, `get_order_status` |
+
+The local CLI enables cart writes **only for a message beginning with `/cart-edit `**. The model cannot enable this permission by suggesting a tool, quoting an earlier request or receiving instructions inside tool data. It sees only the allowlisted schemas for the current turn. Cart edits add units, set an exact quantity or remove a line; they do not reserve inventory, place orders or charge money. Checkout, cancellation/refund preparation and confirmation are not exposed here.
+
+`src/shopper-session.ts` obtains short-lived first-party credentials through cookie authentication and CSRF-protected POSTs. It checks the returned scope and expiry, caches credentials only in RAM, and clears them with the session. A cached grant is reused only when at least 185 seconds remain for the three-minute turn. This uses the existing local credential mechanism; external OAuth/PKCE behavior is unchanged.
+
+`src/shopper-mcp.ts` opens separate public, cart and order connections; `src/mcp.ts` puts each bearer credential in its own HTTP transport, using `/mcp/authorized` for private access. The dispatcher checks that the account has not changed before each call. It never puts credentials or identity into model messages, tool arguments, graph state or LangSmith traces. Redirects, automatic anonymous fallback and application-level call retries are disabled. Credential errors stop the operation; they do not broaden permissions.
+
+`src/catalog-agent.ts` rejects extra arguments and ungrounded IDs before execution. A cart-edit turn starts with a deterministic `get_cart` call before the first model invocation; update/remove IDs must appear in that fresh result. This avoids relying on the model to remember a prerequisite read. Both the graph and dispatcher allow at most one attempted cart mutation per turn; the dispatcher reserves that attempt before network I/O so a timeout cannot trigger a duplicate add. This is not exactly-once delivery across distinct user requests: after an uncertain outcome, inspect the cart before issuing another edit. The .NET services remain authoritative for ownership, stock, prices and quantities.
+
+`src/shopping-tools.ts` projects private results to selected fields, excluding addresses, owner IDs and transport metadata. Results retain at most ten cart/order items, five recent orders and five latest timeline events, with explicit flags when more data exists. Raw private-tool error text is replaced with a fixed failure message. These projections keep context bounded without hiding that a displayed list is partial.
+
+```powershell
+npm.cmd --prefix tools/commerce-agent run test:shopping
+```
+
+This opt-in integration test needs the local stack. It verifies server-side scope enforcement, own-cart add/update/remove, unchanged Sam data and rejection of Alex's order ID by Sam. It creates one previously absent cart line and one cancelled synthetic order, then removes exactly those fixtures. It performs no checkout, payment or stock transition. Unit tests additionally cover extra-argument rejection, per-turn write permissions, duplicate mutation prevention, grant validation, private-result projection and credential-free checkpoints.

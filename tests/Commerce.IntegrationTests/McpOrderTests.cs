@@ -145,6 +145,11 @@ public sealed class McpOrderTests(CommerceFixture fixture) : IClassFixture<Comme
                 Assert.Equal(JsonSerializer.Serialize(apiOrder), JsonSerializer.Serialize(detail));
             }
             var foreign = await client.CallToolAsync("get_order_status", new Dictionary<string, object?> { ["orderId"] = foreignId });
+            // Nullable fields must still be present to satisfy the advertised MCP output schema.
+            var failed = await client.CallToolAsync("get_order_status", new Dictionary<string, object?> { ["orderId"] = failedId });
+            Assert.False(failed.IsError is true);
+            var failedJson = JsonSerializer.SerializeToElement(failed.StructuredContent);
+            Assert.Equal(JsonValueKind.Null, failedJson.GetProperty("nextTransitionAt").ValueKind);
             var missing = await client.CallToolAsync("get_order_status", new Dictionary<string, object?> { ["orderId"] = Guid.NewGuid() });
             Assert.True(foreign.IsError); Assert.True(missing.IsError);
             Assert.Null(foreign.StructuredContent);

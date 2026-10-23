@@ -1,4 +1,5 @@
 import type { BaseMessage, AIMessage, ToolMessage } from "@langchain/core/messages";
+import { cartWriteNames } from "./shopping-tools.js";
 
 export const contextLimits = { turns: 4, bytes: 8000 } as const;
 
@@ -47,14 +48,34 @@ export function referencedProductIds(messages: BaseMessage[]): string[] {
     }
     if (message.type !== "tool" || (message as ToolMessage).status === "error" || typeof message.content !== "string") continue;
     const tool = message as ToolMessage;
-    if (tool.name !== "search_products" && tool.name !== "get_product") continue;
+    const cart = tool.name === "get_cart" || cartWriteNames.includes(tool.name ?? "");
+    if (!cart && tool.name !== "search_products" && tool.name !== "get_product") continue;
     try {
       const body = JSON.parse(message.content);
-      const items = tool.name === "search_products" ? body.items : [body];
+      const items = cart || tool.name === "search_products" ? body.items : [body];
       if (Array.isArray(items)) for (const item of items) {
-        if (typeof item?.id === "string") ids.add(item.id.toLowerCase());
+        const id = cart ? item?.productId : item?.id;
+        if (typeof id === "string") ids.add(id.toLowerCase());
       }
     } catch { /* Text errors and nonstructured tool results confer no product authority. */ }
+  }
+  return [...ids];
+}
+
+export function referencedOrderIds(messages: BaseMessage[]): string[] {
+  const ids = new Set<string>();
+  for (const message of messages) {
+    if (message.type === "human" && typeof message.content === "string") {
+      for (const id of message.content.match(/\b[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}\b/gi) ?? []) ids.add(id.toLowerCase());
+    }
+    if (message.type !== "tool" || (message as ToolMessage).status === "error" || typeof message.content !== "string") continue;
+    const name = (message as ToolMessage).name;
+    if (name !== "get_my_orders" && name !== "get_order_status") continue;
+    try {
+      const body = JSON.parse(message.content);
+      const orders = name === "get_my_orders" ? body.orders : [body];
+      if (Array.isArray(orders)) for (const order of orders) if (typeof order?.id === "string") ids.add(order.id.toLowerCase());
+    } catch { /* A failed parse provides no order authority. */ }
   }
   return [...ids];
 }

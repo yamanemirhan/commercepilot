@@ -208,7 +208,7 @@ Supported filters: `search`, `category`, `minPrice`, `maxPrice`, `inStock`. Sort
 
 ### MCP access
 
-For the Node.js/TypeScript client, see [TypeScript catalog assistant](tools/commerce-agent/README.md). It supports direct MCP calls, a LangChain/Ollama catalog assistant, optional sanitized LangSmith traces, and a local authenticated conversation demo with RAM or PostgreSQL checkpoints. Conversation history is bounded and isolated by account. The storefront chat continues to use the .NET implementation.
+For the Node.js/TypeScript client, see [TypeScript catalog assistant](tools/commerce-agent/README.md). It supports direct MCP calls, a LangChain/Ollama catalog assistant, optional sanitized LangSmith traces, and a local authenticated conversation demo with RAM or PostgreSQL checkpoints. Conversations are bounded and isolated by account; the CLI can read the shopper's cart/orders and perform one explicitly enabled cart edit per turn. The storefront chat continues to use the .NET implementation.
 
 MCP starts with the normal local stack. To rebuild it independently:
 
