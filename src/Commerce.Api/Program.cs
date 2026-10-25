@@ -56,6 +56,9 @@ builder.Services.AddDataProtection().SetApplicationName("CommercePilot")
 builder.Services.AddRateLimiter(options =>
 {
     options.RejectionStatusCode = 429;
+    options.AddPolicy("knowledge", context => RateLimitPartition.GetFixedWindowLimiter(
+        context.User.FindFirstValue(ClaimTypes.NameIdentifier) ?? "anonymous", _ => new FixedWindowRateLimiterOptions
+        { PermitLimit = 20, Window = TimeSpan.FromMinutes(1), QueueLimit = 0 }));
     options.AddPolicy("chat", context => RateLimitPartition.GetFixedWindowLimiter(
         context.User.FindFirstValue(ClaimTypes.NameIdentifier) ?? "anonymous", _ => new FixedWindowRateLimiterOptions
         { PermitLimit = 20, Window = TimeSpan.FromMinutes(1), QueueLimit = 0 }));
@@ -91,7 +94,7 @@ app.UseAuthorization();
 app.UseRateLimiter();
 app.Use(async (context, next) =>
 {
-    if (context.Request.Path.StartsWithSegments("/api/chat"))
+    if (context.Request.Path.StartsWithSegments("/api/chat") || context.Request.Path.StartsWithSegments("/api/knowledge"))
     {
         if (context.Request.ContentLength > 16_384) { context.Response.StatusCode = 413; return; }
         var limit = context.Features.Get<Microsoft.AspNetCore.Http.Features.IHttpMaxRequestBodySizeFeature>();
@@ -99,7 +102,7 @@ app.Use(async (context, next) =>
     }
     if (context.Request.Path.StartsWithSegments("/api/auth") || context.Request.Path.StartsWithSegments("/api/cart")
         || context.Request.Path.StartsWithSegments("/api/orders") || context.Request.Path.StartsWithSegments("/api/actions")
-        || context.Request.Path.StartsWithSegments("/api/chat"))
+        || context.Request.Path.StartsWithSegments("/api/chat") || context.Request.Path.StartsWithSegments("/api/knowledge"))
         context.Response.Headers.CacheControl = "no-cache, no-store";
     await next();
 });
@@ -134,6 +137,7 @@ catalog.MapGet("/categories", async (ICatalogService service, CancellationToken 
 app.MapShoppingEndpoints();
 app.MapOrderEndpoints();
 app.MapChat();
+app.MapKnowledge();
 app.MapAdmin();
 app.MapCommerceOAuth();
 await using (var oauthScope = app.Services.CreateAsyncScope())

@@ -1,4 +1,4 @@
-# CommercePilot TypeScript catalog assistant
+# CommercePilot TypeScript shopping assistant
 
 A native Node.js client for the existing CommercePilot MCP server, using the official TypeScript MCP SDK and Streamable HTTP. The `mcp` command discovers tools and searches with explicit arguments. The `ask` command uses LangChain, LangGraph and local Ollama to select public catalog tools and answer from their results. Neither command uses shopper credentials or a database connection.
 
@@ -166,3 +166,27 @@ npm.cmd --prefix tools/commerce-agent run test:shopping
 ```
 
 This opt-in integration test needs the local stack. It verifies server-side scope enforcement, own-cart add/update/remove, unchanged Sam data and rejection of Alex's order ID by Sam. It creates one previously absent cart line and one cancelled synthetic order, then removes exactly those fixtures. It performs no checkout, payment or stock transition. Unit tests additionally cover extra-argument rejection, per-turn write permissions, duplicate mutation prevention, grant validation, private-result projection and credential-free checkpoints.
+
+## Reviewed site knowledge
+
+Authenticated `chat:ram` and `chat:postgres` conversations also expose `search_site_knowledge`. This is an **application tool calling the existing .NET retrieval API**, not an MCP server tool. LangChain supplies its schema to the model and LangGraph dispatches the selected call in the tools node. Catalog/cart/order calls continue to use MCP. `ask`, `ask:trace` and `mcp` remain catalog-only.
+
+Try these in one conversation:
+
+```text
+Do I have saved addresses in this store?
+Which page can I use to see the delivery destination?
+Does this store offer a lifetime warranty?
+```
+
+The model rewrites follow-ups into self-contained search queries. `ShopperSession.searchKnowledge` calls `POST /api/knowledge/search` with its verified session and CSRF token. The endpoint rejects locked accounts, empty or over-2,000-character queries, applies a 16 KB request-body limit and allows 20 requests per minute per account. Responses are not HTTP-cacheable. No publication endpoint or direct database access is added for retrieval.
+
+The API reuses `SiteKnowledge` and `KnowledgeRetriever`: the same active PostgreSQL/pgvector release, local EmbeddingGemma model, hybrid vector/text search and reviewed-source checks as the storefront. Missing/stale releases, model mismatches and retrieval timeouts return `unavailable`; an empty search returns `no-match`. A new publication is used on the next search without restarting the CLI. The client bounds responses to 32 KB, validates at most two sources with 1,800-character excerpts, and strips undocumented fields.
+
+Source data is an untrusted tool result, never a system instruction or an authorization grant. The model emits `[site:document-id]` citations; the application checks them against the latest retrieval in this turn and renders approved local links. Unknown citations, uncited answers after retrieval and model-generated Markdown/HTML or external links are replaced with a fixed safe response. `no-match` and `unavailable` also produce a fixed refusal instead of displaying unsupported generated claims. For a mixed request that already attempted a cart change, the fallback tells the shopper to read the cart before retrying.
+
+Prior knowledge tool messages are replaced by a stale-evidence marker when building the next turn. Historical answers remain conversation context, but cannot provide current citations. Old checkpoint versions retain their historical snapshots until normal deletion/expiry cleanup. Prompts require a fresh search for site questions and forbid using public documents as personal account data. Retrieval relevance, whether the model chooses to search, and whether a cited passage actually supports every sentence remain model-dependent; citation checks alone do not prove factual accuracy.
+
+Update reviewed documents under `knowledge/documents`, then follow the existing [review, validate, deploy and publish workflow](../../knowledge/README.md). Source code changes require a matching reviewed application build; document-only updates can be published without restarting an already compatible application. Never publish unreviewed site claims. This mechanism handles public site knowledge, not long-term personal conversation memory.
+
+Read `src/site-knowledge.ts` (schema/citations), `src/shopper-session.ts` (authenticated API access), `src/catalog-agent.ts` (tool dispatch/history refresh), and `src/Commerce.Api/KnowledgeEndpoints.cs` at the repository root (retrieval boundary). Cloud tracing remains disabled for the authenticated CLI.

@@ -31,7 +31,7 @@ async function main() {
     if (store instanceof PostgresConversations) await store.pruneExpired();
     const conversations = new Conversations(store, () => session.owner());
     let selected: string | undefined;
-    console.log(`Signed in as ${account}. Memory: ${mode}. Catalog + your cart/orders. Trace mode: off.`);
+    console.log(`Signed in as ${account}. Memory: ${mode}. Catalog + your cart/orders + reviewed site guidance. Trace mode: off.`);
     console.log("/new, /list, /use <id>, /delete <id>, /exit. Use /cart-edit <request> to enable one cart change for that turn.");
     console.log("Memory retains up to four complete turns (8 KB); conversations expire after 24 hours and allow 30 turns.");
     input = createInterface({ input: process.stdin, output: process.stdout });
@@ -65,7 +65,7 @@ async function main() {
               return await runCatalogAgent(question, client, tools => model.bindTools(tools), signal, event => {
                 if (event.type === "node") console.log(`[${event.name}] ${event.phase}`);
                 if (event.type === "call") console.log(`[Tool] ${event.name}`);
-              }, memory, { cartWrite });
+              }, memory, { cartWrite }, (query, requestSignal) => session.searchKnowledge(query, requestSignal));
             } finally { await client.close(); }
           });
           console.log(`CommercePilot> ${answer}`);

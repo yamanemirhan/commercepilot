@@ -1,3 +1,6 @@
+import { readKnowledgeResponse, unavailableKnowledge } from "./site-knowledge.js";
+import type { SiteKnowledge } from "./site-knowledge.js";
+
 export type McpGrant = "cart:read" | "cart:write" | "orders:read";
 const grants = {
   "cart:read": { path: "mcp-token", scope: "cart:read" },
@@ -10,9 +13,10 @@ export class ShopperSession {
   private signedInOwner?: string;
   private readonly tokens = new Map<McpGrant, { value: string; expires: number }>();
   constructor(private readonly request: typeof fetch = fetch) {}
-  private async send(path: string, init: RequestInit = {}) {
-    const response = await this.request(`http://127.0.0.1:5080/api/auth/${path}`, {
-      ...init, redirect: "error", signal: AbortSignal.timeout(10_000),
+  private async send(path: string, init: RequestInit = {}, timeout = 10_000) {
+    const route = path === "/knowledge/search" ? "knowledge/search" : `auth/${path}`;
+    const response = await this.request(`http://127.0.0.1:5080/api/${route}`, {
+      ...init, redirect: "error", signal: AbortSignal.any([AbortSignal.timeout(timeout), ...(init.signal ? [init.signal] : [])]),
       headers: { ...init.headers, Cookie: [...this.cookies].map(([key, value]) => `${key}=${value}`).join("; ") },
     });
     for (const cookie of response.headers.getSetCookie()) {
@@ -61,6 +65,20 @@ export class ShopperSession {
     }
     this.tokens.set(grant, { value: body.accessToken, expires });
     return body.accessToken;
+  }
+  async searchKnowledge(query: string, signal: AbortSignal): Promise<SiteKnowledge> {
+    signal.throwIfAborted();
+    await this.owner(); // Session changes stop the turn, not just retrieval.
+    if (!query.trim() || query.length > 2000) throw new Error("Invalid knowledge query.");
+    try {
+      const response = await this.send("/knowledge/search", { method: "POST", signal,
+        headers: { "Content-Type": "application/json", "X-CSRF-Token": await this.csrf() },
+        body: JSON.stringify({ query }) }, 25_000);
+      return await readKnowledgeResponse(response);
+    } catch {
+      signal.throwIfAborted();
+      return unavailableKnowledge(); // Never leak server bodies or use stale cached documents.
+    }
   }
   private clear() { this.cookies.clear(); this.tokens.clear(); this.signedInOwner = undefined; }
   async logout() {

@@ -1,7 +1,7 @@
 import { AIMessage, HumanMessage, RemoveMessage, SystemMessage, ToolMessage } from "@langchain/core/messages";
 import type { BaseMessage } from "@langchain/core/messages";
 import type { BindToolsInput } from "@langchain/core/language_models/chat_models";
-import type { Client, Tool } from "@modelcontextprotocol/client";
+import type { Client, Tool, CallToolResult } from "@modelcontextprotocol/client";
 import { AjvJsonSchemaValidator } from "@modelcontextprotocol/client/validators/ajv";
 import { StateGraph, StateSchema, MessagesValue, START, END, REMOVE_ALL_MESSAGES } from "@langchain/langgraph";
 import type { BaseCheckpointSaver } from "@langchain/langgraph";
@@ -10,6 +10,8 @@ import { permittedNames, cartWriteNames, shoppingResult } from "./shopping-tools
 import type { ShoppingAccess } from "./shopping-tools.js";
 import { z } from "zod";
 import { randomUUID } from "node:crypto";
+import { knowledgeTool, knowledgeInstructions, citeKnowledge, parseKnowledge } from "./site-knowledge.js";
+import type { KnowledgeSearch, SiteKnowledge } from "./site-knowledge.js";
 
 type CatalogClient = Pick<Client, "listTools" | "callTool">;
 type ModelInvoker = { invoke(messages: BaseMessage[], options: { signal: AbortSignal }): Promise<AIMessage> };
@@ -51,6 +53,7 @@ export async function runCatalogAgent(
   signal: AbortSignal, report: (event: AgentEvent) => void,
   memory?: { checkpointer: BaseCheckpointSaver; threadId: string },
   access?: ShoppingAccess,
+  searchKnowledge?: KnowledgeSearch,
 ): Promise<string> {
   if (!question.trim() || question.length > 2000) throw new Error("Question must contain 1–2000 characters.");
   const instructions = commonInstructions + (access ? `
@@ -59,10 +62,14 @@ Never ask for or pass a user ID, password, cookie or token; the application supp
 Use an order UUID supplied by the user or returned by get_my_orders/get_order_status, never a CP- display number.
 Fetch current cart/order data before stating its current status. Prior results may be stale.
 Results can be capped (10 cart/order items, 5 recent orders, 5 latest timeline events); disclose hasMore flags and never imply completeness.
-You cannot manage addresses, provide site guidance, create orders, checkout, cancel or refund. Explain these limits politely.
+You cannot manage addresses, create orders, checkout, cancel or refund. Explain these limits politely.
+${searchKnowledge ? "Use the site knowledge tool for verified website guidance." : "You cannot provide site guidance."}
 ${access.cartWrite ? "The user explicitly enabled one cart change for this turn. The application reads get_cart at the start of this turn; use that current result. Use add_to_cart to add units, update_cart_item for an exact total, or remove_from_cart for an entire line. Product IDs must be supplied or retrieved. Quantity must be 1-99. Execute at most ONE cart mutation, never retry it; report success only after a successful result. If asked for several changes, ask the user to choose one. A cart edit does not reserve stock or place an order."
     : "Cart editing is disabled for this turn. If asked to edit the cart, explain that the user can explicitly send /cart-edit followed by the requested change. Never claim to have changed the cart."}`
-    : "\nUse only search_products and get_product. You cannot access carts, orders, accounts or site guidance. Never claim to add anything to a cart.");
+    : "\nUse only search_products and get_product. You cannot access carts, orders, accounts or site guidance. Never claim to add anything to a cart.")
+    + (searchKnowledge && access ? knowledgeInstructions : "");
+  const useKnowledge = searchKnowledge && access ? searchKnowledge : undefined;
+  let currentKnowledge: SiteKnowledge | undefined;
   const discovered: Tool[] = [];
   let cursor: string | undefined;
   do {
@@ -72,7 +79,9 @@ ${access.cartWrite ? "The user explicitly enabled one cart change for this turn.
   } while (cursor);
 
   // Discovery is not permission to expose every advertised tool to the model.
-  const names = permittedNames(access);
+  // RAG is an application tool over the existing API, not an MCP permission or a second index.
+  if (useKnowledge) discovered.push(knowledgeTool);
+  const names = [...permittedNames(access), ...(useKnowledge ? [knowledgeTool.name] : [])];
   const allowed = discovered.filter(tool => names.includes(tool.name));
   if (allowed.length !== names.length || new Set(allowed.map(tool => tool.name)).size !== names.length)
     throw new Error("Required tools are missing or duplicated.");
@@ -122,11 +131,12 @@ ${access.cartWrite ? "The user explicitly enabled one cart change for this turn.
     if (calls.length === 0) {
       if (!reply.content.trim()) throw new Error("The model returned no answer.");
       report({ type: "node", name: "model", phase: "completed", elapsedMs: Math.round(performance.now() - started), inputTokens: usage.input_tokens, outputTokens: usage.output_tokens });
-      const answer = new AIMessage(reply.content);
+      const text = useKnowledge ? citeKnowledge(reply.content, currentKnowledge, state.cartMutationAttempted) : reply.content;
+      const answer = new AIMessage(text);
       return { rounds: round, messages: memory
         ? [new RemoveMessage({ id: REMOVE_ALL_MESSAGES }), new SystemMessage(instructions),
           ...retainCompleteTurns([...state.messages, answer])]
-        : [answer], answer: reply.content };
+        : [answer], answer: text };
     }
     if (calls.length > 2 || round === 4) throw new Error("Tool-call budget exceeded; no further tools were executed.");
     const mutations = calls.filter(call => cartWriteNames.includes(call.name));
@@ -169,7 +179,11 @@ ${access.cartWrite ? "The user explicitly enabled one cart change for this turn.
       signal.throwIfAborted();
       report({ type: "call", name: call.name, arguments: call.args });
       if (cartWriteNames.includes(call.name)) cartMutationAttempted = true;
-      const result = await client.callTool({ name: call.name, arguments: call.args }, { signal });
+      let result: CallToolResult;
+      if (call.name === knowledgeTool.name && useKnowledge) {
+        currentKnowledge = parseKnowledge(await useKnowledge(String(call.args.query), signal));
+        result = { content: [], structuredContent: currentKnowledge };
+      } else result = await client.callTool({ name: call.name, arguments: call.args }, { signal });
       const privateTool = !["search_products", "get_product"].includes(call.name);
       let data: unknown;
       try {
@@ -213,7 +227,10 @@ ${access.cartWrite ? "The user explicitly enabled one cart change for this turn.
   const previous = memory ? await graph.getState(config) : undefined;
   // A crashed/failed turn is never implicitly resumed, especially once write tools are introduced.
   if (previous?.next.length) throw new Error("This conversation has an unfinished turn. Start a new conversation.");
-  const history = retainCompleteTurns(previous?.values.messages ?? []);
+  const history = retainCompleteTurns(previous?.values.messages ?? []).map(message =>
+    message.type === "tool" && message.name === knowledgeTool.name
+      ? new ToolMessage({ name: knowledgeTool.name, tool_call_id: (message as ToolMessage).tool_call_id,
+        content: '{"status":"stale","sources":[],"notice":"Search again for current site evidence."}' }) : message);
   const messages = [new SystemMessage(instructions), ...history, new HumanMessage(question)];
   // A deterministic read makes fresh-cart validation independent of whether the model remembers to request it.
   if (access?.cartWrite) messages.push(new AIMessage({ content: "", tool_calls: [
