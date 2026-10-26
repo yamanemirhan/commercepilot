@@ -5,6 +5,7 @@ import pg from "pg";
 import { PostgresSaver } from "@langchain/langgraph-checkpoint-postgres";
 import { memoryLimits, notFound, checkReady, validateConversationId } from "./conversations.js";
 import type { Conversation, ConversationStore, MemoryRun } from "./conversations.js";
+import { reviewThread, guid } from "./review-contract.js";
 
 export async function localMemoryPool(): Promise<pg.Pool> {
   const env = parseEnv(await readFile(new URL("../../../.env", import.meta.url), "utf8"));
@@ -31,6 +32,9 @@ export class PostgresConversations implements ConversationStore {
       expires_at timestamptz NOT NULL DEFAULT (now() + interval '24 hours'))`);
     await this.pool.query(`CREATE INDEX IF NOT EXISTS conversations_owner ON ${this.table} (owner_id, expires_at)`);
     await this.pool.query(`CREATE INDEX IF NOT EXISTS conversations_expiry ON ${this.table} (expires_at)`);
+    await this.pool.query(`CREATE TABLE IF NOT EXISTS "${this.schema}".review_decisions (
+      action_id uuid PRIMARY KEY, conversation_id uuid NOT NULL REFERENCES ${this.table}(id) ON DELETE CASCADE,
+      attempted_at timestamptz NOT NULL DEFAULT now())`);
   }
   private async locked<T>(key: string, work: (client: pg.PoolClient) => Promise<T>) {
     const client = await this.pool.connect();
@@ -89,7 +93,7 @@ export class PostgresConversations implements ConversationStore {
     await client.query("BEGIN");
     try {
       for (const name of ["checkpoint_writes", "checkpoint_blobs", "checkpoints"]) {
-        await client.query(`DELETE FROM "${this.schema}".${name} WHERE thread_id = $1`, [id]);
+        await client.query(`DELETE FROM "${this.schema}".${name} WHERE thread_id = ANY($1::text[])`, [[id, reviewThread(id)]]);
       }
       await client.query(`DELETE FROM ${this.table} WHERE id = $1`, [id]);
       await client.query("COMMIT");
@@ -101,6 +105,20 @@ export class PostgresConversations implements ConversationStore {
       await this.owned(client, owner, id);
       await this.erase(client, id);
     });
+  }
+  async inspect<T>(owner: string, id: string, work: MemoryRun<T>): Promise<T> {
+    await this.owned(this.pool, owner, id);
+    return this.locked(`agent-thread:${id}`, async client => {
+      await this.owned(client, owner, id);
+      return work({ checkpointer: this.saver, threadId: id });
+    });
+  }
+  async claimReviewDecision(owner: string, id: string, actionId: string): Promise<boolean> {
+    guid.parse(actionId);
+    await this.owned(this.pool, owner, id);
+    const result = await this.pool.query(`INSERT INTO "${this.schema}".review_decisions (action_id, conversation_id)
+      VALUES ($1,$2) ON CONFLICT (action_id) DO NOTHING RETURNING action_id`, [actionId, id]);
+    return result.rowCount === 1;
   }
   async pruneExpired(): Promise<number> {
     const expired = await this.pool.query(`SELECT id FROM ${this.table} WHERE expires_at <= now() ORDER BY expires_at LIMIT 100`);

@@ -5,9 +5,12 @@ namespace Commerce.Application;
 public sealed record OrderLine(Guid ProductId, string Name, string Artwork, string Color,
     int Quantity, decimal UnitPrice, int AvailableStock);
 public sealed record ActionSnapshot(string Kind, IReadOnlyList<OrderLine> Items, decimal Total,
-    string Currency, string PaymentMode, string Destination, Guid? OrderId = null, int? OrderVersion = null);
+    string Currency, string PaymentMode, string Destination,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.Never)] Guid? OrderId = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.Never)] int? OrderVersion = null);
 public sealed record PendingActionDto(Guid Id, string Kind, string Status, string SnapshotHash,
-    DateTimeOffset CreatedAt, DateTimeOffset ExpiresAt, ActionSnapshot Snapshot, Guid? OrderId);
+    DateTimeOffset CreatedAt, DateTimeOffset ExpiresAt, ActionSnapshot Snapshot,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.Never)] Guid? OrderId);
 public sealed record OrderEventDto(DateTimeOffset At, string Title, string Detail);
 public sealed record OrderDto(Guid Id, string Number, string Status, string PaymentStatus,
     decimal Total, string Currency, decimal CapturedAmount, decimal RefundedAmount,

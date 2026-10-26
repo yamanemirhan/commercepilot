@@ -1,6 +1,7 @@
 import { createInterface } from "node:readline/promises";
 import { readFile } from "node:fs/promises";
 import { parseEnv } from "node:util";
+import type { Review, ReviewIntent } from "./review-contract.js";
 
 process.env.LANGSMITH_TRACING = "false";
 process.env.LANGCHAIN_TRACING_V2 = "false";
@@ -12,15 +13,19 @@ async function main() {
     console.log("Usage: npm run chat:ram -- alex | npm run chat:postgres -- alex (or sam)");
     console.log("Local developer demo: signs in through the API using ignored .env demo credentials.");
     console.log("Commands: /new, /list, /use <id>, /delete <id>, /cart-edit <request>, /exit. Catalog, own cart/orders; no trace upload.");
+    console.log("Human review: /review checkout [success|failure|delay], /review cancel <order-id>, /review refund <order-id>.");
+    console.log("/review, /approve <review-id>, /reject <review-id>, /sync-review. A normal chat message is never approval.");
     return;
   }
   if (!["ram", "postgres"].includes(mode ?? "") || !["alex", "sam"].includes(account ?? "") || extra.length) {
     throw new Error("Use chat:ram or chat:postgres with alex or sam. See chat --help.");
   }
   const [{ RamConversations, Conversations }, { PostgresConversations, localMemoryPool }, { ShopperSession },
-    { connectShopperMcp }, { createCatalogModel }, { runCatalogAgent }] = await Promise.all([
+    { connectShopperMcp }, { createCatalogModel }, { runCatalogAgent }, { createReviewFlow, decideReview },
+    { reviewGateway }, { formatReview, reviewIntent, sameReview }] = await Promise.all([
     import("./conversations.js"), import("./postgres-memory.js"), import("./shopper-session.js"),
     import("./shopper-mcp.js"), import("./model.js"), import("./catalog-agent.js"),
+    import("./review-graph.js"), import("./review-client.js"), import("./review-contract.js"),
   ]);
   const session = new ShopperSession();
   const store = mode === "ram" ? new RamConversations() : new PostgresConversations(await localMemoryPool());
@@ -30,10 +35,18 @@ async function main() {
     await session.login(`${account}@commercepilot.local`, env[`DEMO_${account!.toUpperCase()}_PASSWORD`] ?? "");
     if (store instanceof PostgresConversations) await store.pruneExpired();
     const conversations = new Conversations(store, () => session.owner());
+    const reviews = reviewGateway(session);
+    // Receipt exists only after the trusted formatter displays exact server terms in this process.
+    const shown = new Map<string, Review>();
+    const display = (conversationId: string, review: Review) => {
+      console.log(formatReview(review)); shown.set(conversationId, review);
+    };
     let selected: string | undefined;
     console.log(`Signed in as ${account}. Memory: ${mode}. Catalog + your cart/orders + reviewed site guidance. Trace mode: off.`);
     console.log("/new, /list, /use <id>, /delete <id>, /exit. Use /cart-edit <request> to enable one cart change for that turn.");
     console.log("Memory retains up to four complete turns (8 KB); conversations expire after 24 hours and allow 30 turns.");
+    console.log("Reviews: /review checkout [success|failure|delay], /review cancel <order-id>, /review refund <order-id>.");
+    console.log("/review displays current terms; /approve <review-id> or /reject <review-id> sends your decision. /sync-review only reads the outcome.");
     input = createInterface({ input: process.stdin, output: process.stdout });
     // One iterator supports both interactive terminals and piped learning/test transcripts.
     process.stdout.write("You> ");
@@ -50,8 +63,61 @@ async function main() {
         } else if (text.startsWith("/delete ")) {
           const id = text.slice(8).trim();
           await conversations.remove(id);
+          shown.delete(id);
           if (selected === id) selected = undefined;
           console.log("Conversation and all its checkpoints deleted.");
+        } else if (text === "/review" || text.startsWith("/review ")) {
+          const parts = text.split(/\s+/);
+          const signal = AbortSignal.timeout(30_000);
+          if (parts.length === 1) {
+            if (!selected) throw new Error("Review requires a selected conversation.");
+            const review = await conversations.inspect(selected, async memory => {
+              const state = await createReviewFlow(memory, reviews, signal).inspect();
+              if (!state.review) throw new Error("Review not found in this conversation.");
+              const current = await reviews.read(state.review.id, signal);
+              if (!sameReview(state.review, current)) throw new Error("Review terms changed unexpectedly.");
+              return current;
+            });
+            display(selected, review);
+          } else {
+            let intent: ReviewIntent;
+            if (parts[1] === "checkout" && parts.length <= 3)
+              intent = reviewIntent.parse({ kind: "Checkout", paymentMode: parts[2] ?? "success" });
+            else if (["cancel", "refund"].includes(parts[1]!) && parts.length === 3)
+              intent = reviewIntent.parse({ kind: parts[1] === "cancel" ? "Cancellation" : "Refund", orderId: parts[2] });
+            else throw new Error("Review command: /review checkout [success|failure|delay], /review cancel <order-id>, /review refund <order-id>.");
+            selected ??= (await conversations.create()).id;
+            const existing = await conversations.inspect(selected, memory => createReviewFlow(memory, reviews, signal).inspect());
+            if (existing.unfinished) throw new Error("Review already pending or unfinished. Use /review or /sync-review.");
+            const review = await conversations.run(selected, memory => createReviewFlow(memory, reviews, signal).start(intent));
+            display(selected, review);
+          }
+        } else if (text.startsWith("/approve ") || text.startsWith("/reject ")) {
+          if (!selected || !shown.has(selected)) throw new Error("Review must be displayed with /review before deciding.");
+          const [command, actionId, ...extra] = text.split(/\s+/);
+          if (!actionId || extra.length) throw new Error("Review decision needs exactly one review ID.");
+          const receipt = shown.get(selected)!;
+          if (receipt.id !== actionId) throw new Error("Review ID must match the displayed review.");
+          const id = selected;
+          const signal = AbortSignal.timeout(30_000);
+          const result = await conversations.inspect(id, memory => decideReview(createReviewFlow(memory, reviews, signal), receipt,
+            actionId, command === "/approve" ? "approve" : "reject", reviews,
+            () => conversations.claimReviewDecision(id, actionId), signal));
+          shown.delete(id);
+          if (result.review) display(id, result.review);
+          else console.log("Review decision outcome is uncertain. Do not resend it. Use /sync-review to read the server outcome, or inspect the storefront.");
+        } else if (text === "/sync-review") {
+          if (!selected) throw new Error("Review requires a selected conversation.");
+          const signal = AbortSignal.timeout(30_000);
+          const review = await conversations.inspect(selected, async memory => {
+            const flow = createReviewFlow(memory, reviews, signal);
+            const state = await flow.inspect();
+            if (!state.review) throw new Error("Review not found in this conversation.");
+            const current = await reviews.read(state.review.id, signal);
+            if (!sameReview(state.review, current)) throw new Error("Review terms changed unexpectedly.");
+            return (state.waiting || state.verifying) && current.status !== "Pending" ? flow.sync() : current;
+          });
+          display(selected, review);
         } else if (text) {
           const cartWrite = text.startsWith("/cart-edit ");
           const question = cartWrite ? text.slice(11).trim() : text;
@@ -73,7 +139,7 @@ async function main() {
         if (selected) console.log(`[Conversation] ${selected}`);
       } catch (error) {
         const message = error instanceof Error ? error.message : "";
-        const safe = /^(Conversation |RAM conversation|Your session |This conversation |The latest turn |This request exceeds|Use a supported command)/.test(message);
+        const safe = /^(Review |Conversation |RAM conversation|Your session |This conversation |The latest turn |This request exceeds|Use a supported command)/.test(message);
         console.error(safe ? message : "The operation failed. Use /new and check your cart before retrying any edit: a change may already have happened. Check session and service availability.");
       }
       process.stdout.write("You> ");

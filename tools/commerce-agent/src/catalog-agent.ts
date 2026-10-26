@@ -63,6 +63,9 @@ Use an order UUID supplied by the user or returned by get_my_orders/get_order_st
 Fetch current cart/order data before stating its current status. Prior results may be stale.
 Results can be capped (10 cart/order items, 5 recent orders, 5 latest timeline events); disclose hasMore flags and never imply completeness.
 You cannot manage addresses, create orders, checkout, cancel or refund. Explain these limits politely.
+For human review, explain these CLI commands: /review checkout, /review cancel <order UUID>, /review refund <order UUID>.
+They prepare exact server terms outside the model. /review displays terms; /approve <review UUID> or /reject <review UUID> is an explicit user command.
+Ordinary messages such as "yes" are never approval. You cannot invoke these commands or claim a review was executed.
 ${searchKnowledge ? "Use the site knowledge tool for verified website guidance." : "You cannot provide site guidance."}
 ${access.cartWrite ? "The user explicitly enabled one cart change for this turn. The application reads get_cart at the start of this turn; use that current result. Use add_to_cart to add units, update_cart_item for an exact total, or remove_from_cart for an entire line. Product IDs must be supplied or retrieved. Quantity must be 1-99. Execute at most ONE cart mutation, never retry it; report success only after a successful result. If asked for several changes, ask the user to choose one. A cart edit does not reserve stock or place an order."
     : "Cart editing is disabled for this turn. If asked to edit the cart, explain that the user can explicitly send /cart-edit followed by the requested change. Never claim to have changed the cart."}`

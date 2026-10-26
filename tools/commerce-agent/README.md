@@ -151,7 +151,7 @@ Normal `chat:ram` and `chat:postgres` messages can search products, read the sig
 | Explicit cart edit | `/api/auth/mcp-cart-token` | `cart:read cart:write` | `get_cart`, `add_to_cart`, `update_cart_item`, `remove_from_cart` |
 | Order reading | `/api/auth/mcp-orders-token` | `orders:read` | `get_my_orders`, `get_order_status` |
 
-The local CLI enables cart writes **only for a message beginning with `/cart-edit `**. The model cannot enable this permission by suggesting a tool, quoting an earlier request or receiving instructions inside tool data. It sees only the allowlisted schemas for the current turn. Cart edits add units, set an exact quantity or remove a line; they do not reserve inventory, place orders or charge money. Checkout, cancellation/refund preparation and confirmation are not exposed here.
+The local CLI enables cart writes **only for a message beginning with `/cart-edit `**. The model cannot enable this permission by suggesting a tool, quoting an earlier request or receiving instructions inside tool data. It sees only the allowlisted schemas for the current turn. Cart edits add units, set an exact quantity or remove a line; they do not reserve inventory, place orders or charge money. Checkout, cancellation/refund preparation and confirmation are not model tools; explicit human-review commands are described below.
 
 `src/shopper-session.ts` obtains short-lived first-party credentials through cookie authentication and CSRF-protected POSTs. It checks the returned scope and expiry, caches credentials only in RAM, and clears them with the session. A cached grant is reused only when at least 185 seconds remain for the three-minute turn. This uses the existing local credential mechanism; external OAuth/PKCE behavior is unchanged.
 
@@ -190,3 +190,42 @@ Prior knowledge tool messages are replaced by a stale-evidence marker when build
 Update reviewed documents under `knowledge/documents`, then follow the existing [review, validate, deploy and publish workflow](../../knowledge/README.md). Source code changes require a matching reviewed application build; document-only updates can be published without restarting an already compatible application. Never publish unreviewed site claims. This mechanism handles public site knowledge, not long-term personal conversation memory.
 
 Read `src/site-knowledge.ts` (schema/citations), `src/shopper-session.ts` (authenticated API access), `src/catalog-agent.ts` (tool dispatch/history refresh), and `src/Commerce.Api/KnowledgeEndpoints.cs` at the repository root (retrieval boundary). Cloud tracing remains disabled for the authenticated CLI.
+
+## Human review with durable pause and resume
+
+The developer CLI has a separate LangGraph review workflow: `prepare -> human_review (interrupt) -> verify -> end`. Preparation calls an existing scoped MCP tool. The interrupt node is side-effect free, because LangGraph restarts that node on resume. Confirmation/rejection occurs only in the trusted CLI command handler, through the existing cookie + CSRF HTTP endpoints. `Command({ resume: "refresh" })` only reads the server outcome; resuming a graph cannot place an order. If the server still reports `Pending`, the graph waits again. See [LangGraph interrupt semantics](https://github.com/langchain-ai/docs/blob/main/src/oss/langgraph/interrupts.mdx).
+
+On an existing installation, run the idempotent schema setup once before using persistent reviews:
+
+```powershell
+npm.cmd --prefix tools/commerce-agent run memory:setup
+npm.cmd --prefix tools/commerce-agent run chat:postgres -- alex
+```
+
+| Command | Behavior |
+| --- | --- |
+| `/review checkout [success\|failure\|delay]` | Prepare a five-minute checkout review; payment outcome defaults to `success`, and all payment/shipping is simulated. |
+| `/review cancel <order-id>` | Prepare cancellation for an eligible owned order UUID. |
+| `/review refund <order-id>` | Prepare a full demo refund for an eligible owned order UUID. |
+| `/review` | Fetch and display the current conversation's exact server terms, including every item, quantity, unit price, stock, total, destination, expiry and snapshot hash. |
+| `/approve <review-id>` | Execute exactly the displayed review through the authoritative API. |
+| `/reject <review-id>` | Reject exactly the displayed review. |
+| `/sync-review` | Read the server status and finish a waiting graph if the review is terminal; never resend a decision. |
+
+A normal message such as `yes` cannot execute or reject anything. Natural-language checkout requests receive command guidance; the model is not given preparation, confirmation or rejection tools. The displayed-review receipt is kept only in this CLI process, so after reconnecting with `/use <conversation-id>`, run `/review` before deciding. Review terms are not summarized by the model or fed into ordinary chat history. The existing storefront still uses its own review cards and buttons; connecting these workflows to the web chat is a separate integration.
+
+Review checkpoints use `review:<conversation-id>` in the same saver as the owning conversation. Owner checks and the existing conversation lock protect display, preparation, decisions, recovery and deletion. A paused graph releases its lock; later operations acquire it again. The conversation list's `ready` status means no active execution, not that its review is completed. Ordinary chat can continue while a review waits, but later cart/order changes may make the review stale. Review preparation counts toward the 30-turn cap; display, decision and read-only recovery do not consume another model turn.
+
+Before a decision HTTP request, `commerce_agent.review_decisions` atomically reserves its action ID. A lost response, process crash or stale response cannot cause the CLI to automatically repeat that request. A reservation deliberately remains even if the request never reached the API: use `/sync-review`, inspect the storefront or let the review expire, then prepare fresh terms. This conservative policy is not a general exactly-once transport guarantee; the server's snapshot checks, owner locks and idempotent completed-action response remain authoritative. `Completed` means the review executed, not that demo payment succeeded.
+
+PostgreSQL restores paused reviews and decision reservations after restart. RAM mode retains both only until that process exits. Terminal/expired reviews cannot execute, and stale snapshots are rejected by the API. Failed preparation is never replayed automatically. A failed read in the verification node can be retried read-only. A failed/crashed ordinary conversation remains blocked for new model turns; review inspection/recovery is still available while the conversation is unexpired. After reviewing the outcome, start a new conversation if needed.
+
+Deleting/expiring a CLI conversation removes its ordinary checkpoints, companion review checkpoints and decision reservations. It does **not** delete or reject the server's commerce review/order; pending reviews expire on their own. Review checkpoints contain exact approval terms, including the demo destination, but no cookies or credentials. This uses the existing 24-hour conversation retention and five-minute review lifetime.
+
+`src/review-contract.ts` validates/prints exact terms, `src/review-client.ts` handles scoped MCP preparation, and `src/review-graph.ts` implements interrupt/resume and the separate decision controller. `src/shopper-session.ts` owns cookie/CSRF HTTP calls. `src/conversations.ts` and `src/postgres-memory.ts` enforce ownership, locking, decision reservations and cleanup.
+
+```powershell
+npm.cmd --prefix tools/commerce-agent run test:reviews
+```
+
+The opt-in integration suite creates an isolated temporary shopper and checkpoint schema. It verifies reconnect, account isolation, lost-decision-response recovery, rejection, expiry, stale checkout, cancellation and refund. Checkout uses simulated payment failure to preserve stock; eligible change-order fixtures have no scheduled worker transitions. Fixture records are cleaned up without modifying existing shoppers' carts or orders.

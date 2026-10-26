@@ -18,6 +18,7 @@
     "memory:prune": "tsx src/memory-admin.ts prune",
     "test:memory": "tsx --test tests/postgres-memory.integration.ts",
     "test:shopping": "tsx --test tests/shopping.integration.ts",
+    "test:reviews": "tsx --test tests/review.integration.ts",
     "typecheck": "tsc --noEmit",
     "test": "tsx --test tests/*.test.ts"
   },

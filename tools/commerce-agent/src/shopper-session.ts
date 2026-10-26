@@ -1,11 +1,16 @@
 import { readKnowledgeResponse, unavailableKnowledge } from "./site-knowledge.js";
 import type { SiteKnowledge } from "./site-knowledge.js";
+import { guid, reviewSchema } from "./review-contract.js";
+import type { Review } from "./review-contract.js";
 
-export type McpGrant = "cart:read" | "cart:write" | "orders:read";
+export type McpGrant = "cart:read" | "cart:write" | "orders:read" | "checkout:prepare" | "cancellation:prepare" | "refund:prepare";
 const grants = {
   "cart:read": { path: "mcp-token", scope: "cart:read" },
   "cart:write": { path: "mcp-cart-token", scope: "cart:read cart:write" },
   "orders:read": { path: "mcp-orders-token", scope: "orders:read" },
+  "checkout:prepare": { path: "mcp-checkout-token", scope: "orders:prepare actions:read" },
+  "cancellation:prepare": { path: "mcp-cancellation-token", scope: "orders:read orders:cancel:prepare actions:read" },
+  "refund:prepare": { path: "mcp-refund-token", scope: "orders:read orders:refund:prepare actions:read" },
 } as const;
 // Cookie and CSRF values live only inside this local CLI object, never in graph state/configuration.
 export class ShopperSession {
@@ -14,7 +19,8 @@ export class ShopperSession {
   private readonly tokens = new Map<McpGrant, { value: string; expires: number }>();
   constructor(private readonly request: typeof fetch = fetch) {}
   private async send(path: string, init: RequestInit = {}, timeout = 10_000) {
-    const route = path === "/knowledge/search" ? "knowledge/search" : `auth/${path}`;
+    const route = path === "/knowledge/search" || /^\/actions\/[0-9a-f-]{36}(?:\/(?:confirm|reject))?$/i.test(path)
+      ? path.slice(1) : `auth/${path}`;
     const response = await this.request(`http://127.0.0.1:5080/api/${route}`, {
       ...init, redirect: "error", signal: AbortSignal.any([AbortSignal.timeout(timeout), ...(init.signal ? [init.signal] : [])]),
       headers: { ...init.headers, Cookie: [...this.cookies].map(([key, value]) => `${key}=${value}`).join("; ") },
@@ -79,6 +85,20 @@ export class ShopperSession {
       signal.throwIfAborted();
       return unavailableKnowledge(); // Never leak server bodies or use stale cached documents.
     }
+  }
+  async readReview(id: string, signal: AbortSignal): Promise<Review> {
+    guid.parse(id); await this.owner();
+    return reviewSchema.parse(await (await this.send(`/actions/${id}`, { signal })).json());
+  }
+  async decideReview(review: Review, decision: "approve" | "reject", signal: AbortSignal): Promise<Review> {
+    reviewSchema.parse(review); await this.owner();
+    if (decision !== "approve" && decision !== "reject") throw new Error("Invalid review decision.");
+    const response = await this.send(`/actions/${review.id}/${decision === "approve" ? "confirm" : "reject"}`, {
+      method: "POST", signal,
+      headers: { "Content-Type": "application/json", "X-CSRF-Token": await this.csrf() },
+      body: JSON.stringify(decision === "approve" ? { snapshotHash: review.snapshotHash } : {}),
+    });
+    return reviewSchema.parse(await response.json());
   }
   private clear() { this.cookies.clear(); this.tokens.clear(); this.signedInOwner = undefined; }
   async logout() {

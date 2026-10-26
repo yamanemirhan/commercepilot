@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { MemorySaver } from "@langchain/langgraph";
 import type { BaseCheckpointSaver } from "@langchain/langgraph";
+import { reviewThread, guid } from "./review-contract.js";
 
 export const memoryLimits = { conversations: 20, turns: 30, lifetimeMs: 24 * 60 * 60 * 1000 } as const;
 export type Conversation = { id: string; turns: number; status: "ready" | "running" | "failed"; expiresAt: Date };
@@ -9,6 +10,8 @@ export interface ConversationStore {
   create(owner: string): Promise<Conversation>;
   list(owner: string): Promise<Conversation[]>;
   run<T>(owner: string, id: string, work: MemoryRun<T>): Promise<T>;
+  inspect<T>(owner: string, id: string, work: MemoryRun<T>): Promise<T>;
+  claimReviewDecision(owner: string, id: string, actionId: string): Promise<boolean>;
   remove(owner: string, id: string): Promise<void>;
   close(): Promise<void>;
 }
@@ -27,6 +30,8 @@ export class Conversations {
   async create() { return this.store.create(await this.identify()); }
   async list() { return this.store.list(await this.identify()); }
   async run<T>(id: string, work: MemoryRun<T>) { return this.store.run(await this.identify(), id, work); }
+  async inspect<T>(id: string, work: MemoryRun<T>) { return this.store.inspect(await this.identify(), id, work); }
+  async claimReviewDecision(id: string, actionId: string) { return this.store.claimReviewDecision(await this.identify(), id, actionId); }
   async remove(id: string) { return this.store.remove(await this.identify(), id); }
 }
 
@@ -34,6 +39,7 @@ export class RamConversations implements ConversationStore {
   private readonly rows = new Map<string, Conversation & { owner: string }>();
   private readonly saver = new MemorySaver();
   private readonly busy = new Set<string>();
+  private readonly decisions = new Map<string, string>();
   constructor(private readonly now = () => Date.now()) {}
   private get(owner: string, id: string) {
     validateConversationId(id);
@@ -43,8 +49,7 @@ export class RamConversations implements ConversationStore {
   }
   private async prune() {
     for (const [id, row] of this.rows) if (row.expiresAt.getTime() <= this.now() && !this.busy.has(id)) {
-      this.rows.delete(id);
-      await this.saver.deleteThread(id);
+      await this.erase(id);
     }
   }
   async create(owner: string): Promise<Conversation> {
@@ -74,11 +79,26 @@ export class RamConversations implements ConversationStore {
   async remove(owner: string, id: string) {
     this.get(owner, id);
     if (this.busy.has(id)) throw new Error("Conversation is busy.");
+    await this.erase(id);
+  }
+  async inspect<T>(owner: string, id: string, work: MemoryRun<T>): Promise<T> {
+    this.get(owner, id);
+    if (this.busy.has(id)) throw new Error("Conversation is busy.");
+    this.busy.add(id);
+    try { return await work({ checkpointer: this.saver, threadId: id }); }
+    finally { this.busy.delete(id); }
+  }
+  async claimReviewDecision(owner: string, id: string, actionId: string): Promise<boolean> {
+    this.get(owner, id); guid.parse(actionId);
+    if (this.decisions.has(actionId)) return false;
+    this.decisions.set(actionId, id); return true;
+  }
+  private async erase(id: string) {
     this.rows.delete(id);
-    await this.saver.deleteThread(id);
+    await this.saver.deleteThread(id); await this.saver.deleteThread(reviewThread(id));
+    for (const [action, conversation] of this.decisions) if (conversation === id) this.decisions.delete(action);
   }
   async close() {
-    for (const id of this.rows.keys()) await this.saver.deleteThread(id);
-    this.rows.clear();
+    for (const id of this.rows.keys()) await this.erase(id);
   }
 }
