@@ -27,9 +27,18 @@ public static class ChatEndpoints
             http.BaseAddress = new(builder.Configuration["Chat:OllamaUrl"] ?? "http://127.0.0.1:11434/");
             http.Timeout = Timeout.InfiniteTimeSpan;
         }).ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false });
-        builder.Services.AddSingleton<IChatModel>(services => new OllamaChatModel(
-            services.GetRequiredService<IHttpClientFactory>().CreateClient("chat-model"), new()
-            { Model = builder.Configuration["Chat:Model"] ?? "qwen3.8:27b" }));
+        var backend = builder.Configuration["Chat:Backend"] ?? "dotnet";
+        if (backend is not ("dotnet" or "langgraph")) throw new InvalidOperationException("Chat:Backend must be dotnet or langgraph.");
+        builder.Services.AddHttpClient("chat-agent", http =>
+        {
+            http.BaseAddress = new(builder.Configuration["Chat:AgentUrl"] ?? "http://127.0.0.1:8080/");
+            http.Timeout = Timeout.InfiniteTimeSpan;
+        }).ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false });
+        builder.Services.AddSingleton<IChatModel>(services => backend == "langgraph"
+            ? new LangGraphChatModel(services.GetRequiredService<IHttpClientFactory>().CreateClient("chat-agent"),
+                builder.Configuration["Chat:AgentKey"] ?? "")
+            : new OllamaChatModel(services.GetRequiredService<IHttpClientFactory>().CreateClient("chat-model"), new()
+                { Model = builder.Configuration["Chat:Model"] ?? "qwen3.8:27b" }));
         builder.Services.AddScoped<IChatToolFactory, McpChatToolFactory>();
         builder.Services.AddScoped<ChatService>();
     }

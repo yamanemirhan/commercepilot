@@ -113,7 +113,8 @@ public sealed class ChatService(CommerceDbContext db, IChatModel model, IChatToo
         var hadWrite = false;
         try
         {
-            await EmitAsync(turn, "turn.started", new { message = turn.Input }, publish, ct);
+            await EmitAsync(turn, "turn.started", new { message = turn.Input,
+                backend = model is LangGraphChatModel ? "langgraph" : "dotnet" }, publish, ct);
             var user = await users.FindByIdAsync(owner) ?? throw new OrderFault(401, "Please sign in again.");
             if (await users.IsLockedOutAsync(user)) throw new OrderFault(401, "This account is unavailable.");
             await ReadAsync(owner, turn.ConversationId, ct);

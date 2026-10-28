@@ -29,7 +29,7 @@ The demonstrated flow searched the live catalog, resolved "the second one" to Pe
 
 1. The browser sends your message through the same-origin Next.js gateway to the authenticated .NET API.
 2. The API loads bounded conversation history and retrieves relevant published site guidance from PostgreSQL/pgvector using local EmbeddingGemma embeddings.
-3. Qwen3.8 proposes a reply or tool calls. The API validates those calls and sends them through the real MCP SDK client to the MCP server, which checks the shopper's identity and scopes and invokes shared commerce services.
+3. An internal TypeScript LangGraph service streams Qwen3.8 replies through LangChain and validates proposed tool calls. The API independently validates those calls and sends them through the real MCP SDK client to the MCP server, which checks the shopper's identity and scopes and invokes shared commerce services.
 4. Tool results return to the model for its next response and become typed product, bag, order or review cards. Text and card events stream to the browser; conversation records persist in PostgreSQL.
 5. A critical action stops at a review. Only the authenticated UI's approval endpoint can execute it after fresh validation. The model has no confirmation tool.
 
@@ -42,6 +42,7 @@ The demonstrated flow searched the live catalog, resolved "the second one" to Pe
 | MCP transport | Official C# SDK, Streamable HTTP, scoped credentials and OAuth + PKCE for external clients |
 | Persistence and retrieval | PostgreSQL 18, EF Core, pgvector, full-text and vector search |
 | Local AI | Ollama, Qwen3.8 27B for conversation, EmbeddingGemma for embeddings |
+| Agent integration | LangChain, LangGraph, internal Node.js service; optional sanitized LangSmith traces for the CLI |
 | Local runtime | Docker Compose; Ollama on the host for GPU access |
 
 [Run locally](#run-locally) · [Try an order](#try-an-order) · [Architecture](#architecture) · [MCP access](#mcp-access) · [Site knowledge](#site-knowledge-and-order-pages) · [Verification](#verification)
@@ -54,7 +55,7 @@ Install Docker Desktop with Linux containers and start it. From the repository r
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\start.ps1
 ```
 
-The script generates a local database password and three unique demo account passwords in the ignored `.env` file, builds the application, applies migrations, seeds missing catalog entries/accounts, and waits for readiness. Existing catalog and cart data are preserved. The first run downloads container images and dependencies.
+The script generates a local database password, three unique demo account passwords and an internal agent key in the ignored `.env` file, builds the application, applies migrations, seeds missing catalog entries/accounts, and waits for readiness. Existing catalog and cart data are preserved. The first run downloads container images and dependencies.
 
 Open **[localhost:3000](http://localhost:3000)**.
 
@@ -75,10 +76,11 @@ The accounts are `alex@commercepilot.local` and `sam@commercepilot.local`, with 
 | PostgreSQL | localhost:5438 |
 | MCP | http://127.0.0.1:5081/mcp |
 | Ollama (Windows host) | http://127.0.0.1:11434 |
+| LangGraph agent | Internal `agent:8080`; no published host port |
 
 All published ports bind to loopback. This Compose configuration is for local development: it enables development OpenAPI and a single-instance migration/seed bootstrap. Do not expose it as a production deployment.
 
-Without PowerShell, copy `.env.example` to `.env`, replace the database placeholder with a randomly generated **alphanumeric** password, and supply three distinct demo account passwords (at least 12 characters with uppercase, lowercase, digits, and a symbol). Then run:
+Without PowerShell, copy `.env.example` to `.env`, replace the database placeholder with a randomly generated **alphanumeric** password, supply three distinct demo account passwords (at least 12 characters with uppercase, lowercase, digits, and a symbol), and set `AGENT_SHARED_KEY` to 32 cryptographically random bytes encoded as 64 lowercase hex characters. Then run:
 
 ```sh
 docker compose up --build -d
@@ -98,7 +100,9 @@ ollama pull embeddinggemma:latest
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\knowledge.ps1 publish -Value "local-operator"
 ```
 
-The models need downloading only once; the published knowledge index survives restarts. Qwen3.8 27B was evaluated on a 24 GB GPU; see [Local model probe](#local-model-probe) for memory and context settings. Compose starts the storefront, API, MCP and database together; the API reaches Ollama through `host.docker.internal:11434`. No cloud account or API key is needed. The storefront uses original vector illustrations. Google Fonts is optional, with system-font fallbacks.
+The models need downloading only once; the published knowledge index survives restarts. Qwen3.8 27B was evaluated on a 24 GB GPU; see [Local model probe](#local-model-probe) for memory and context settings. Compose starts the storefront, API, MCP, agent and database together; the agent and API reach Ollama through `host.docker.internal:11434`. No cloud account or cloud API key is needed. The storefront uses original vector illustrations. Google Fonts is optional, with system-font fallbacks.
+
+Compose defaults to `CHAT_BACKEND=langgraph`. To select the direct .NET model adapter, set `CHAT_BACKEND=dotnet` in `.env` and run `docker compose up -d api`. Selection is server-side; there is no automatic failover or retry after a failed round. Both backends use the same chat history, cards, ownership checks, approvals and administrator metrics.
 
 ## Administrator workspace
 
@@ -130,7 +134,8 @@ Browser -> Next.js same-origin gateways -> ASP.NET Core API
                                          -> EF Core / PostgreSQL
 Demo scheduler -> Order service -> persisted payment / shipment transitions
 MCP client -> ASP.NET Core MCP server -> Catalog / Cart / Order services -> PostgreSQL
-Chat API -> Ollama (proposes tools) -> scoped MCP clients -> commerce tools
+Chat API -> internal LangGraph / LangChain -> Ollama (streams text, proposes tools)
+Chat API -> validated proposals -> scoped MCP clients -> commerce tools
 Chat API -> PostgreSQL (turns, events, cards); SSE -> browser
 Chat API -> EmbeddingGemma -> PostgreSQL / pgvector (published site references)
 Reviewed knowledge files -> operator CLI -> embeddings -> atomic index publication
@@ -139,7 +144,7 @@ Reviewed knowledge files -> operator CLI -> embeddings -> atomic index publicati
 | Directory | Responsibility |
 | --- | --- |
 | `web` | Responsive storefront, sign-in, bag, order pages, streaming chat and inline cards, same-origin gateways |
-| `src/Commerce.AI` | Bounded local Ollama adapter, streamed text, tool schemas and response validation |
+| `src/Commerce.AI` | Bounded Ollama and internal LangGraph adapters, streamed text, tool schemas and response validation |
 | `src/Commerce.Domain` | Product, cart, order, approval and timeline models |
 | `src/Commerce.Application` | Catalog/cart/order contracts and input validation |
 | `src/Commerce.Infrastructure` | EF Core persistence, Identity users, migrations, application services, demo seeds |
@@ -148,7 +153,7 @@ Reviewed knowledge files -> operator CLI -> embeddings -> atomic index publicati
 | `src/Commerce.Knowledge` | Reviewed document validation, local embeddings, atomic publication and hybrid retrieval |
 | `knowledge` | Public site guidance, allowed links, source review fingerprints and publishing documentation |
 | `tools/Commerce.McpProbe` | Console MCP client for discovery, catalog calls and optional local shopper login |
-| `tools/commerce-agent` | TypeScript MCP client with direct catalog calls and a separate LangChain/Ollama catalog assistant |
+| `tools/commerce-agent` | Internal LangGraph web inference service and standalone TypeScript MCP/LangChain learning clients |
 | `tools/Commerce.ModelProbe` | Local model adapter probe and proposal-only evaluation runner |
 | `tools/Commerce.Knowledge` | Operator CLI to review, validate, publish and query site knowledge |
 | `tests/Commerce.IntegrationTests` | Real PostgreSQL tests for identity, ownership, approvals, stock concurrency and payment/order transitions |
@@ -208,7 +213,7 @@ Supported filters: `search`, `category`, `minPrice`, `maxPrice`, `inStock`. Sort
 
 ### MCP access
 
-For the Node.js/TypeScript client, see [TypeScript shopping assistant](tools/commerce-agent/README.md). It supports direct MCP calls, a LangChain/Ollama catalog assistant, optional sanitized LangSmith traces, and a local authenticated conversation demo with RAM or PostgreSQL checkpoints. Conversations are bounded and isolated by account; the CLI can read the shopper's cart/orders and perform one explicitly enabled cart edit per turn. Site-guidance questions use the existing reviewed RAG index through an authenticated API, with current-source citations and explicit no-source responses. Explicit human-review commands prepare checkout/cancellation/refund terms, pause a separate LangGraph workflow, and verify authoritative API decisions without replaying uncertain writes. The storefront chat continues to use the .NET implementation.
+For the Node.js/TypeScript client, see [TypeScript shopping assistant](tools/commerce-agent/README.md). It supports direct MCP calls, a LangChain/Ollama catalog assistant, optional sanitized LangSmith traces, and a local authenticated conversation demo with RAM or PostgreSQL checkpoints. Conversations are bounded and isolated by account; the CLI can read the shopper's cart/orders and perform one explicitly enabled cart edit per turn. Site-guidance questions use the existing reviewed RAG index through an authenticated API, with current-source citations and explicit no-source responses. Explicit human-review commands prepare checkout/cancellation/refund terms, pause a separate LangGraph workflow, and verify authoritative API decisions without replaying uncertain writes. The storefront uses the internal LangGraph service by default, with .NET retaining the authenticated MCP execution loop and durable conversation state. The CLI checkpoint stores are separate from web chat history.
 
 MCP starts with the normal local stack. To rebuild it independently:
 

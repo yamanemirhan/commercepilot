@@ -11,6 +11,10 @@ if (-not (Test-Path -LiteralPath '.env')) {
     Set-Content -LiteralPath '.env' -Value "POSTGRES_PASSWORD=$(New-LocalPassword)" -Encoding ascii
     Write-Host 'Created local database configuration.'
 }
+if (-not (Select-String -LiteralPath '.env' -Pattern '^AGENT_SHARED_KEY=' -Quiet)) {
+    Add-Content -LiteralPath '.env' -Value "AGENT_SHARED_KEY=$(New-LocalPassword)" -Encoding ascii
+    Write-Host 'Created the internal chat agent key.'
+}
 foreach ($account in @('ALEX', 'SAM', 'ADMIN')) {
     $key = "DEMO_${account}_PASSWORD"
     if (-not (Select-String -LiteralPath '.env' -Pattern "^$key=" -Quiet)) {
