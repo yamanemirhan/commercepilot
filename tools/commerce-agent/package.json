@@ -7,6 +7,12 @@
     "node": ">=24"
   },
   "scripts": {
+    "eval": "tsx src/evaluate.ts",
+    "eval:baseline": "tsx src/evaluate.ts baseline",
+    "eval:concise": "tsx src/evaluate.ts concise",
+    "eval:compare": "tsx src/evaluate.ts --compare",
+    "eval:upload": "tsx src/evaluate.ts --upload",
+    "eval:schemas": "tsx src/evaluation-schemas.ts",
     "serve": "tsx src/web-server.ts",
     "mcp": "tsx src/index.ts",
     "ask": "tsx src/ask.ts",

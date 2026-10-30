@@ -60,6 +60,10 @@ npm.cmd --prefix tools/commerce-agent audit
 
 SDK reference: [official TypeScript client documentation](https://ts.sdk.modelcontextprotocol.io/v2/clients/connect).
 
+## Fixed model evaluations
+
+Run `npm.cmd --prefix tools/commerce-agent run eval:baseline` and `eval:concise` from the repository root, then `eval:compare`. These run 44 synthetic scenarios through the real local model and production web graph without executing proposed tools. Reports stay in ignored `.local/evaluations/`. An explicit `eval:upload` creates a LangSmith dataset and paired experiments containing only case identifiers, scores, timings and token measurements. See the [evaluation guide](evaluation/README.md) for prerequisites, interpretation, permissions, regression checks and fixture maintenance.
+
 ## Ask the local model
 
 Start Ollama on the host with `qwen3.8:27b` already downloaded (see the root README for GPU requirements). From the repository root:
@@ -71,7 +75,7 @@ npm.cmd --prefix tools/commerce-agent run ask -- 'Find the cheapest in-stock des
 
 Use single quotes in PowerShell so `$100` reaches the model literally. The command prints `[Model-selected tool]`, `[MCP result]` and `[Answer]`. Tool selection and the final English answer come from the model; catalog facts come from the real MCP server. Only `search_products` and `get_product` are allowed, even if the server advertises other tools.
 
-Each `ask` command starts fresh: messages and results stay in RAM only for that request. The separate `chat` commands below add conversation checkpoints and authenticated cart/order tools. RAG and web-chat integration are not yet connected to this client. Automatic LangSmith tracing is explicitly disabled before model initialization; the optional exporter below sends only selected operational metadata. The existing storefront continues using its .NET chat implementation.
+Each `ask` command starts fresh: messages and results stay in RAM only for that request. The separate `chat` commands below add conversation checkpoints, authenticated cart/order tools and reviewed site knowledge. The storefront uses the internal web service described above. Automatic LangSmith tracing is explicitly disabled before model initialization; the optional exporter below sends only selected operational metadata.
 
 The graph runs `START → model → tools → model → END`; a direct reply takes `model → END`. The shared state contains messages, the round count, retrieved product IDs, failed-call fingerprints and the final answer. `MessagesValue` merges new messages into the existing history; nodes return updates instead of mutating shared state. Conditional routing sends only validated calls to the tools node. `[Graph: model]` and `[Graph: tools]` report node starts, completion and elapsed milliseconds. A recursion limit backs up the explicit model/tool budgets.
 

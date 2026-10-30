@@ -1,0 +1,241 @@
+[
+  {
+    "name": "add_to_cart",
+    "description": "Add units of a real product to the signed-in shopper\u0027s bag and return the updated bag. Quantity is added to any existing quantity. Prices come from the database. Does not reserve stock, create an order or charge money. Repeating a successful call adds again; after an uncertain result, read get_cart before deciding what to do.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "productId": {
+          "description": "The exact product UUID returned by search_products or get_product.",
+          "type": "string",
+          "format": "uuid"
+        },
+        "quantity": {
+          "description": "Units to add, from 1 to 99. The resulting quantity must not exceed 99 or current stock.",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "productId",
+        "quantity"
+      ]
+    }
+  },
+  {
+    "name": "get_cart",
+    "description": "Read the signed-in shopper\u0027s current bag, quantities, current prices and availability. Does not change the bag or reserve stock.",
+    "parameters": {
+      "type": "object",
+      "properties": {}
+    }
+  },
+  {
+    "name": "get_my_orders",
+    "description": "List summaries of the signed-in shopper\u0027s most recent 100 orders, newest first. Includes real order IDs, order status, payment status and totals. An empty list means this account has no orders. Does not create orders or advance payment/shipping.",
+    "parameters": {
+      "type": "object",
+      "properties": {}
+    }
+  },
+  {
+    "name": "get_order_status",
+    "description": "Read one order belonging to the signed-in shopper, including its separate order/payment states, items, timeline and cancellation/refund eligibility. Use the order UUID from get_my_orders, not the display number. Eligibility is information, not approval. Does not change the order, advance shipping or charge/refund money.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "orderId": {
+          "description": "The exact order UUID from get_my_orders. Not the CP- display number.",
+          "type": "string",
+          "format": "uuid"
+        }
+      },
+      "required": [
+        "orderId"
+      ]
+    }
+  },
+  {
+    "name": "get_pending_action_status",
+    "description": "Read a review belonging to the signed-in shopper using its exact action UUID. Returns the immutable terms, expiry, current review status and resulting order ID if completed. Also reads expired, superseded, rejected or completed reviews. Never approves, rejects, creates an order or advances a payment. Pending means human approval is still required in the storefront; Completed means the review executed, not necessarily that payment succeeded.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "actionId": {
+          "description": "The exact review UUID returned by prepare_order or the storefront review API. Not an order UUID.",
+          "type": "string",
+          "format": "uuid"
+        }
+      },
+      "required": [
+        "actionId"
+      ]
+    }
+  },
+  {
+    "name": "get_product",
+    "description": "Read a public product by its real ID from search_products. Returns current price and stock. Does not reserve stock.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "productId": {
+          "description": "The exact product UUID returned by search_products.",
+          "type": "string",
+          "format": "uuid"
+        }
+      },
+      "required": [
+        "productId"
+      ]
+    }
+  },
+  {
+    "name": "prepare_cancellation",
+    "description": "Prepare a five-minute cancellation review for one of the shopper\u0027s orders before dispatch. Does not cancel, refund, void payment or release stock. Supersedes an earlier pending cancellation review for the same order; never retry automatically. Present the exact returned terms for an explicit human button approval. Order eligibility is rechecked when approved.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "orderId": {
+          "description": "The exact owned order UUID from get_my_orders, not the CP- display number.",
+          "type": "string",
+          "format": "uuid"
+        }
+      },
+      "required": [
+        "orderId"
+      ]
+    }
+  },
+  {
+    "name": "prepare_order",
+    "description": "Prepare a five-minute checkout review from the signed-in shopper\u0027s current bag and server prices. Does NOT place an order, reserve stock, charge money or approve anything. Replaces any previous pending checkout review for this shopper; do not retry automatically. Present the returned terms in the application\u0027s trusted review UI for explicit human button approval; a chat message alone is not approval. Returns the review ID, expiry, snapshot and status; use get_pending_action_status to read it.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "paymentMode": {
+          "description": "Local demo payment outcome after human approval: success, failure or delay. No real payment occurs.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "paymentMode"
+      ]
+    }
+  },
+  {
+    "name": "prepare_refund",
+    "description": "Prepare a five-minute full-refund review for the shopper\u0027s delivered order with captured payment, within 30 days of delivery. Does not refund or restock. Partial refunds and returns are unsupported. Supersedes an earlier pending refund review for this order; never retry automatically. Present returned terms for explicit human button approval; eligibility is checked again on approval.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "orderId": {
+          "description": "The exact owned order UUID from get_my_orders, not the CP- display number.",
+          "type": "string",
+          "format": "uuid"
+        }
+      },
+      "required": [
+        "orderId"
+      ]
+    }
+  },
+  {
+    "name": "remove_from_cart",
+    "description": "Remove a product\u0027s entire line from the signed-in shopper\u0027s bag and return the remaining bag. If already absent, return the unchanged bag. Does not cancel orders, change inventory or refund payments.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "productId": {
+          "description": "The exact product UUID from the shopper\u0027s get_cart result.",
+          "type": "string",
+          "format": "uuid"
+        }
+      },
+      "required": [
+        "productId"
+      ]
+    }
+  },
+  {
+    "name": "search_products",
+    "description": "Search the public CommercePilot catalog. Returns real product IDs, prices in USD, current stock and pagination. Does not change a bag, reserve stock or place an order.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "search": {
+          "description": "Literal text to find in product names or descriptions. Maximum 100 characters.",
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        },
+        "category": {
+          "description": "One of Audio, Workspace, Everyday or Gaming. Omit for all categories.",
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        },
+        "minPrice": {
+          "description": "Minimum unit price in USD, at least zero.",
+          "type": [
+            "number",
+            "null"
+          ],
+          "default": null
+        },
+        "maxPrice": {
+          "description": "Maximum unit price in USD, at least the minimum price.",
+          "type": [
+            "number",
+            "null"
+          ],
+          "default": null
+        },
+        "sort": {
+          "description": "featured, price-asc, price-desc or name.",
+          "type": "string",
+          "default": "featured"
+        },
+        "page": {
+          "description": "Page number, from 1 to 10000.",
+          "type": "integer",
+          "default": 1
+        },
+        "pageSize": {
+          "description": "Products per page, from 1 to 48.",
+          "type": "integer",
+          "default": 12
+        },
+        "inStock": {
+          "description": "Return only products with stock above zero.",
+          "type": "boolean",
+          "default": false
+        }
+      }
+    }
+  },
+  {
+    "name": "update_cart_item",
+    "description": "Set an existing item in the signed-in shopper\u0027s bag to an exact total quantity. This replaces the quantity; it does not add units. Use remove_from_cart to remove an item. Prices and availability are checked again. Does not reserve stock, create an order or charge money.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "productId": {
+          "description": "The exact product UUID from the shopper\u0027s get_cart result.",
+          "type": "string",
+          "format": "uuid"
+        },
+        "quantity": {
+          "description": "The desired total quantity, from 1 to 99 and no more than current stock. Zero is invalid; use remove_from_cart instead.",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "productId",
+        "quantity"
+      ]
+    }
+  }
+]

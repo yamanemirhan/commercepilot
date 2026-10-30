@@ -413,6 +413,8 @@ Limits: 50 conversations per account, 100 turns per conversation, 2,000 input ch
 
 ### Application checks
 
+The TypeScript agent includes a [fixed 44-scenario model evaluation](tools/commerce-agent/evaluation/README.md): compare the current prompt with a concise candidate, inspect reference/tool/safety checks, and optionally compare sanitized measurements in LangSmith. It uses the real local model but executes no commerce tools. Deterministic agent regression checks run in GitHub Actions; model evaluations remain local and explicit.
+
 Against the running Compose stack:
 
 ```powershell

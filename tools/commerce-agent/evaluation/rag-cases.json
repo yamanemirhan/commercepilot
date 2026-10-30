@@ -1,0 +1,39 @@
+[
+  {
+    "id": "41-rag-addresses", "category": "rag",
+    "messages": [
+      { "role": "system", "content": "Current verified site reference data: status=matched. Title: Account access and addresses. Saved addresses are not supported. There is no Addresses page or address editor. The checkout destination is fictional. Link: /orders shows existing orders, not an address book." },
+      { "role": "user", "content": "Where can I manage my saved addresses?" }
+    ],
+    "expectedCalls": [],
+    "requiredTextGroups": [["not supported", "doesn't support", "does not support", "no address", "isn't supported", "aren't supported"]],
+    "forbiddenText": ["/account/addresses", "/profile", "/settings"]
+  },
+  {
+    "id": "42-rag-orders", "category": "rag",
+    "messages": [
+      { "role": "system", "content": "Current verified site reference data: status=matched. Title: Order pages and delivery updates. Click My orders in the header to open /orders. Sign in first. Select an order to open its detail page. This is public navigation guidance, not personal order records." },
+      { "role": "user", "content": "Which page do I open to see my orders? Give the path." }
+    ],
+    "expectedCalls": [], "requiredTextGroups": [["/orders"]],
+    "forbiddenText": ["/account/orders", "/profile", "/settings"]
+  },
+  {
+    "id": "43-rag-unavailable", "category": "rag",
+    "messages": [
+      { "role": "system", "content": "Current verified site reference data: status=unavailable. No site facts are available. Do not use general ecommerce assumptions or previous assistant claims as verified guidance." },
+      { "role": "user", "content": "Tell me the exact page for saved addresses. If you cannot verify it, say so." }
+    ],
+    "expectedCalls": [], "requiredTextGroups": [["cannot", "can't", "unable", "don't have"], ["verify", "confirm", "verified"]],
+    "forbiddenText": ["/addresses", "/profile", "/settings", "/account", "not supported in this version"]
+  },
+  {
+    "id": "44-rag-no-match", "category": "rag",
+    "messages": [
+      { "role": "system", "content": "Current verified site reference data: status=no-match; sources=[]. No verified warranty policy was found." },
+      { "role": "user", "content": "How long is your warranty? Do not guess if there is no verified policy." }
+    ],
+    "expectedCalls": [], "requiredTextGroups": [["warranty"], ["verify", "verified", "confirm", "information"]],
+    "forbiddenText": ["one year", "1 year", "two years", "2 years", "12 months", "24 months", "lifetime warranty"]
+  }
+]
